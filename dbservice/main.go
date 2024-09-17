@@ -25,6 +25,7 @@ func dsnString(dbName string) string {
 func initDB() error {
 	// Загружаем переменные из файла .env
 	err := godotenv.Load("/app/.env")
+
 	if err != nil {
 		log.Fatalf("Ошибка загрузки .env файла: %v", err)
 	}
@@ -33,6 +34,7 @@ func initDB() error {
 
 	db, err := sql.Open("postgres", dsn)
 	if err != nil {
+		log.Fatalf("Ошибка подключения базы данных: %s", err)
 		return err
 	}
 
@@ -44,11 +46,26 @@ func initDB() error {
 	//Находим наименование Авторизационной базы данных
 	authDBName := os.Getenv("DB_AUTH_NAME")
 
+	//создаём Авторизационную базу данных если она ещё не существует в докер образе
 	err = createInsideDB(authDBName)
 	if err != nil {
 		log.Fatal(fmt.Sprintf("ошибка создания внутренней БД ", err))
 		return err
 	}
+	defer func() {
+		if err := db.Close(); err != nil {
+			log.Printf("Ошибка при закрытии текущего соединения: %v", err)
+		}
+	}()
+
+	//открываем базу данных Авторизации для обновления миграции
+	dsn = dsnString(authDBName)
+	if err != nil {
+		log.Fatalf("Ошибка подключения базы данных: %s", err)
+		return err
+	}
+
+	db, err = sql.Open("postgres", dsn)
 
 	migratePath := ""
 
@@ -63,6 +80,12 @@ func initDB() error {
 		log.Fatal(fmt.Sprintf("ошибка MIGRATION_COMPANIES_PATH ", err))
 		return err
 	}
+
+	defer func() {
+		if err := db.Close(); err != nil {
+			log.Printf("Ошибка при закрытии текущего соединения: %v", err)
+		}
+	}()
 
 	return nil
 }
@@ -130,13 +153,6 @@ func createDatabase() (nameDB string, err error) {
 		return randomName, fmt.Errorf("ошибка вызова создания базы данных: %w", err)
 	}
 
-	/*//миграция для companies
-	migratePath = os.Getenv("MIGRATION_COMPANIES_PATH")
-	err = migrations.Migration(newDB, migratePath, randomName)
-	if err != nil {
-		return "", err
-	}*/
-
 	//миграция для таблицы users
 	migratePath = os.Getenv("MIGRATION_USERS_PATH")
 	err = migrations.Migration(newDB, migratePath, randomName)
@@ -173,7 +189,12 @@ func getAllUsers(dbName string) ([]map[string]interface{}, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func(rows *sql.Rows) {
+		err := rows.Close()
+		if err != nil {
+			log.Printf("Ошибка при закрытии строк: %v", err)
+		}
+	}(rows)
 
 	var users []map[string]interface{}
 	for rows.Next() {
@@ -233,7 +254,10 @@ func registerHandler(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Write([]byte("Регистрация успешно завершена"))
+	_, err = w.Write([]byte("Регистрация успешно завершена"))
+	if err != nil {
+		http.Error(w, "Ошибка записи ответа с сервера: "+err.Error(), http.StatusInternalServerError)
+	}
 }
 
 func createDatabaseHandler(w http.ResponseWriter, r *http.Request) {
@@ -259,7 +283,10 @@ func getAllUsersHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	for _, user := range users {
-		fmt.Fprintf(w, "ID: %d, Username: %s\n", user["id"], user["username"])
+		_, err := fmt.Fprintf(w, "ID: %d, Username: %s\n", user["id"], user["username"])
+		if err != nil {
+			return
+		}
 	}
 }
 
