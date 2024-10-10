@@ -1,0 +1,43 @@
+_format_version: "1.1"
+
+services:
+  - name: auth-service  # Имя вашего Auth-сервиса
+    url: https://localhost:50055  # Укажите контейнер или IP-адрес вашего Auth-сервиса
+
+  - name: db-service  # Имя вашего DB-сервиса
+    url: grpc://testauth-dbservice:8081  # Укажите контейнер или IP-адрес вашего DB-сервиса
+
+routes:
+  # Маршруты для Auth-сервиса
+  - name: auth-route  # Имя маршрута для Auth-сервиса
+    service: auth-service
+    paths:
+      - /auth  # Путь для доступа к Auth-сервису
+    protocols:
+      - grpcs
+    strip_path: false  # Сохраняем путь в запросе
+
+  - name: register-route  # Имя маршрута для регистрации
+    service: auth-service
+    paths:
+      - /protobuff.AuthService/Register  # Путь для метода Register
+    protocols:
+      - grpcs
+    strip_path: false
+
+  # Маршруты для DB-сервиса
+  - name: db-route  # Имя маршрута для DB-сервиса
+    service: db-service
+    paths:
+      - /db  # Путь для доступа к DB-сервису
+    protocols:
+      - grpcs
+    strip_path: false  # Сохраняем путь в запросе
+
+  - name: get-user-route  # Имя маршрута для метода GetUser в DB-сервисе
+    service: db-service
+    paths:
+      - /protobuff.RegisterDBS/RegisterDBS  # Путь для метода GetUser
+    protocols:
+      - grpcs
+    strip_path: false

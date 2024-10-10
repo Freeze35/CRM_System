@@ -1,0 +1,38 @@
+syntax = "proto3";
+
+package protobuff;
+
+option go_package = "./protobuff/;protobuff";
+
+service dbService {
+  // Метод для регистрации
+  rpc RegisterCompany (RegisterRequest) returns (RegisterResponse);
+  // Метод для логинизации
+  rpc Login (LoginRequest) returns (LoginResponse);
+}
+
+message RegisterRequest {
+  string nameCompany = 1;
+  string address = 2;
+  string email = 4;
+  string phone = 5;
+  string password = 6;
+}
+
+message RegisterResponse {
+  string message = 1;
+  string database = 2;
+  int32 status = 3;
+}
+
+message LoginRequest {
+  string email = 1;
+  string phone = 2;
+  string password = 3;
+}
+
+message LoginResponse {
+  string message = 1;
+  string database = 2;
+  int32 status = 3;
+}

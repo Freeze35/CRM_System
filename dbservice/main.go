@@ -1,15 +1,19 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
-	"github.com/gorilla/mux"
 	"github.com/joho/godotenv"
 	_ "github.com/lib/pq"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/reflection"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"testAuth/migrations"
+	pb "testAuth/proto/protobuff" // Импортируйте сгенерированный пакет из протобуферов
 	"testAuth/utils"
 )
 
@@ -30,13 +34,18 @@ func initDB() error {
 		log.Fatalf("Ошибка загрузки .env файла: %v", err)
 	}
 
-	dsn := dsnString(os.Getenv("DB_NAME"))
+	dsn := dsnString(os.Getenv("SERVER_NAME"))
 
 	db, err := sql.Open("postgres", dsn)
 	if err != nil {
 		log.Fatalf("Ошибка подключения базы данных: %s", err)
 		return err
 	}
+	defer func() {
+		if err := db.Close(); err != nil {
+			log.Printf("Ошибка при закрытии текущего соединения: %v", err)
+		}
+	}()
 
 	/*err = db.Ping()
 	if err != nil {
@@ -52,11 +61,6 @@ func initDB() error {
 		log.Fatal(fmt.Sprintf("ошибка создания внутренней БД ", err))
 		return err
 	}
-	defer func() {
-		if err := db.Close(); err != nil {
-			log.Printf("Ошибка при закрытии текущего соединения: %v", err)
-		}
-	}()
 
 	//открываем базу данных Авторизации для обновления миграции
 	dsn = dsnString(authDBName)
@@ -95,7 +99,7 @@ func createInsideDB(dbName string) error {
 		return fmt.Errorf("имя базы данных не может быть пустым")
 	}
 
-	dsn := dsnString(os.Getenv("DB_NAME"))
+	dsn := dsnString(os.Getenv("SERVER_NAME"))
 
 	// Открываем соединение с базой данных postgres
 	db, err := sql.Open("postgres", dsn)
@@ -132,34 +136,23 @@ func createInsideDB(dbName string) error {
 	return nil
 }
 
-func createDatabase() (nameDB string, err error) {
+func createClientDatabase() (nameDB string, err error) {
 
+	//Создаём рандомное имя для базы даннхы компании
 	randomName := utils.RandomDBName(25)
 
-	// Открываем соединение с базой данных postgres
-	dsn := dsnString(os.Getenv("DB_NAME"))
-
-	newDB, err := sql.Open("postgres", dsn)
-
-	if err != nil {
-		return "", fmt.Errorf("ошибка при открытии базы данных: %w", err)
-	}
-
-	migratePath := ""
-
-	//Функция проверки создания авторизационной базы или базы компании
+	// Функция проверки и создания базы данных
 	err = createInsideDB(randomName)
 	if err != nil {
-		return randomName, fmt.Errorf("ошибка вызова создания базы данных: %w", err)
+		return "", fmt.Errorf("ошибка при создании базы данных: %w", err)
 	}
 
-	//миграция для таблицы users
-	migratePath = os.Getenv("MIGRATION_USERS_PATH")
-	err = migrations.Migration(newDB, migratePath, randomName)
+	// Теперь подключаемся к только что созданной базе данных
+	newDSN := dsnString(randomName) // Создаем новое соединение к этой базе
+	newDB, err := sql.Open("postgres", newDSN)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("ошибка подключения к новой базе данных: %w", err)
 	}
-
 	defer func(newDB *sql.DB) {
 		err := newDB.Close()
 		if err != nil {
@@ -167,11 +160,18 @@ func createDatabase() (nameDB string, err error) {
 		}
 	}(newDB)
 
+	// Миграция для таблицы users
+	migratePath := os.Getenv("MIGRATION_COMPANYDB_PATH")
+	err = migrations.Migration(newDB, migratePath, randomName)
+	if err != nil {
+		return "", fmt.Errorf("ошибка при миграции базы данных: %w", err)
+	}
+
 	return randomName, nil
 
 }
 
-func getAllUsers(dbName string) ([]map[string]interface{}, error) {
+/*func getAllUsers(dbName string) ([]map[string]interface{}, error) {
 	dsn := fmt.Sprintf("postgres://user:password@localhost:5432/%s?sslmode=disable", dbName)
 	dbConn, err := sql.Open("postgres", dsn)
 	if err != nil {
@@ -209,30 +209,205 @@ func getAllUsers(dbName string) ([]map[string]interface{}, error) {
 		})
 	}
 	return users, nil
-}
+}*/
 
-func registerCompany(name, address, dbName string) error {
-	dsn := dsnString(dbName) /* fmt.Sprintf("postgres://user:password@localhost:5432/%s?sslmode=disable", dbname)*/
+// dropClientDatabase удаляет базу данных по имени.
+func dropClientDatabase(dbName string) error {
+	dsn := dsnString(os.Getenv("DB_AUTH_NAME")) // Получите данные для подключения к основной базе данных
 	dbConn, err := sql.Open("postgres", dsn)
 	if err != nil {
-		return err
+		return fmt.Errorf("не удалось подключиться к базе данных: %v", err)
 	}
-	defer func(dbConn *sql.DB) {
-		err := dbConn.Close()
-		if err != nil {
-			log.Fatal(fmt.Sprintf("Некорректное закрытие базы данных %s", dbName))
-		}
-	}(dbConn)
+	defer dbConn.Close()
 
-	_, err = dbConn.Exec("INSERT INTO companies (name, address,dbname) VALUES ($1, $2, $3)", name, address, dbName)
+	_, err = dbConn.Exec("DROP DATABASE IF EXISTS " + dbName)
 	if err != nil {
-		return err
+		return fmt.Errorf("не удалось удалить базу данных: %v", err)
 	}
 
 	return nil
 }
 
-func registerHandler(w http.ResponseWriter, r *http.Request) {
+func registerCompany(req *pb.RegisterRequest) (nameDB string, err error) {
+	// Находим наименование авторизационной базы данных
+	authDBName := os.Getenv("DB_AUTH_NAME")
+
+	// Создаём новую базу данных для пользователя
+	dbName, err := createClientDatabase()
+	if err != nil {
+		return "", err
+	}
+
+	// Подключаемся к авторизационной базе данных
+	dsn := dsnString(authDBName)
+	dbConn, err := sql.Open("postgres", dsn)
+	if err != nil {
+		return "", err
+	}
+	defer func() {
+		if cerr := dbConn.Close(); cerr != nil {
+			log.Fatal(fmt.Sprintf("Ошибка при закрытии базы данных %s: %v", dbName, cerr))
+		}
+	}()
+
+	// Начинаем транзакцию
+	tx, err := dbConn.Begin()
+	if err != nil {
+		return "", fmt.Errorf("не удалось начать транзакцию: %v", err)
+	}
+
+	// Откат транзакции в случае ошибки
+	defer func() {
+		if err != nil {
+			_ = tx.Rollback()
+			log.Printf("Транзакция откатана из-за ошибки: %v", err)
+			// Удаляем базу данных, если произошла ошибка
+			if dropErr := dropClientDatabase(dbName); dropErr != nil {
+				log.Printf("Ошибка при удалении базы данных %s: %v", dbName, dropErr)
+			}
+		}
+	}()
+
+	// Вставляем новую компанию и получаем её ID
+	var companyId int
+	err = tx.QueryRow(
+		"INSERT INTO companies (name, address, dbname) VALUES ($1, $2, $3) RETURNING id",
+		req.NameCompany, req.Address, dbName,
+	).Scan(&companyId)
+	if err != nil {
+		return "", fmt.Errorf("не удалось создать компанию: %v", err)
+	}
+
+	// Вставляем пользователя, привязанного к компании
+
+	var authUserId int
+	err = tx.QueryRow(
+		"INSERT INTO authusers (email, phone, password, companyId) VALUES ($1, $2, $3, $4) RETURNING id",
+		req.Email, req.Phone, req.Password, companyId,
+	).Scan(&authUserId)
+	if err != nil {
+		return "", fmt.Errorf("не удалось создать пользователя: %v", err)
+	}
+
+	// Если все прошло успешно, фиксируем транзакцию
+	err = tx.Commit()
+	if err != nil {
+		return "", fmt.Errorf("не удалось зафиксировать транзакцию: %v", err)
+	}
+
+	// Подключаемся к базе данных компании
+	dsnC := dsnString(dbName)
+	dbConnCompany, err := sql.Open("postgres", dsnC)
+	if err != nil {
+		return "", err
+	}
+	defer func() {
+		if cerr := dbConnCompany.Close(); cerr != nil {
+			log.Fatal(fmt.Sprintf("Ошибка при закрытии базы данных %s: %v", dbName, cerr))
+		}
+	}()
+
+	// Начинаем транзакцию для компании
+	txc, err := dbConnCompany.Begin()
+	// Откат транзакции в случае ошибки
+	defer func() {
+		if err != nil {
+			_ = txc.Rollback()
+			log.Printf("Транзакция откатана из-за ошибки: %v", err)
+			// Удаляем базу данных, если произошла ошибка
+			if dropErr := dropClientDatabase(dbName); dropErr != nil {
+				log.Printf("Ошибка при удалении базы данных %s: %v", dbName, dropErr)
+			}
+		}
+	}()
+
+	role := os.Getenv("FIRST_ROLE")
+
+	// Добавляем новую роль
+	var roleID int
+	err = txc.QueryRow("INSERT INTO rights (roles) VALUES ($1) RETURNING id", role).Scan(&roleID)
+	if err != nil {
+		return "", fmt.Errorf("не удалось добавить название прав: %v", err)
+	}
+
+	// Вставляем пользователя, привязанного к компании
+	_, err = txc.Exec(
+		"INSERT INTO users (roles, companyId, rightsId, authId) VALUES ($1, $2, $3, $4)",
+		role, companyId, roleID, authUserId,
+	)
+	if err != nil {
+		return "", fmt.Errorf("не удалось добавить пользователя: %v", err)
+	}
+
+	// Добавляем доступные действия для новой роли
+	_, err = txc.Exec(
+		"INSERT INTO availableactions (roleId, createTasks, createChats, addWorkers) VALUES ($1, $2, $3, $4)",
+		roleID, true, true, true)
+	if err != nil {
+		return "", fmt.Errorf("не удалось расширенные права пользователя: %v", err)
+	}
+
+	// Если все прошло успешно, фиксируем транзакцию
+	err = txc.Commit()
+	if err != nil {
+		return "", fmt.Errorf("не удалось зафиксировать транзакцию, внутри компании: %v", err)
+	}
+
+	return dbName, nil
+}
+
+func checkUser(req *pb.LoginRequest) (dbName string, err error) {
+
+	dsn := dsnString(os.Getenv("DB_AUTH_NAME"))
+	db, err := sql.Open("postgres", dsn)
+	if err != nil {
+		log.Fatalf("Ошибка подключения базы данных: %s", err)
+		return "", err
+	}
+	defer func() {
+		if err := db.Close(); err != nil {
+			log.Printf("Ошибка при закрытии текущего соединения: %v", err)
+		}
+	}()
+
+	query := `
+        SELECT companyId
+        FROM authusers 
+        WHERE (email = $1 OR phone = $2) 
+        AND password = $3
+    `
+
+	companyID := ""
+	err = db.QueryRow(query, req.Email, req.Phone, req.Password).Scan(&companyID)
+	fmt.Println(companyID)
+
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return "", nil // Пользователь не найден
+		}
+		return "", err // Ошибка при выполнении запроса
+	}
+
+	queryCompanies := `
+        SELECT dbName
+        FROM companies 
+        WHERE id = $1 
+    `
+
+	err = db.QueryRow(queryCompanies, companyID).Scan(&dbName)
+
+	if err != nil {
+		if err == sql.ErrNoRows {
+			return "", nil // Пользователь не найден
+		}
+		return "", err // Ошибка при выполнении запроса
+	}
+
+	return dbName, nil
+
+}
+
+/*func registerHandler(w http.ResponseWriter, r *http.Request) {
 
 	// Структура для JSON-данных
 	type DbStruct struct {
@@ -258,11 +433,11 @@ func registerHandler(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		http.Error(w, "Ошибка записи ответа с сервера: "+err.Error(), http.StatusInternalServerError)
 	}
-}
+}*/
 
-func createDatabaseHandler(w http.ResponseWriter, r *http.Request) {
+/*func createDatabaseHandler(w http.ResponseWriter, r *http.Request) {
 
-	dbName, err := createDatabase()
+	dbName, err := createClientDatabase()
 	if err != nil {
 		http.Error(w, "Ошибка создания базы данных: "+err.Error(), http.StatusInternalServerError)
 		return
@@ -288,6 +463,91 @@ func getAllUsersHandler(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+}*/
+
+/*func main() {
+
+	var err error
+	err = initDB()
+
+	if err != nil {
+		log.Fatal("Error loading .env file")
+	}
+
+	dbServiceName := os.Getenv("DB_SERVICE_NAME")
+
+	if err != nil {
+		log.Fatal(err)
+	}
+
+	r := mux.NewRouter()
+	r.HandleFunc(fmt.Sprintf("%s/register", dbServiceName), registerHandler).Methods("POST")
+	r.HandleFunc(fmt.Sprintf("%s/create-db", dbServiceName), createDatabaseHandler).Methods("POST")
+	r.HandleFunc(fmt.Sprintf("%s/users", dbServiceName), getAllUsersHandler).Methods("GET")
+
+	log.Println("db-server запущен на порту 8080")
+	log.Fatal(http.ListenAndServe(":8080", r))
+}*/
+
+type DbServiceServer struct {
+	pb.UnimplementedDbServiceServer
+}
+
+func (s *DbServiceServer) RegisterCompany(_ context.Context, req *pb.RegisterRequest) (*pb.RegisterResponse, error) {
+
+	log.Printf("Получен запрос на регистрацию организации: %v", req.NameCompany)
+
+	dbName, err := registerCompany(req)
+	if err != nil {
+		response := &pb.RegisterResponse{
+			Message:  "Ошибка регистрации: " + err.Error(),
+			Database: dbName,
+			Status:   http.StatusInternalServerError,
+		}
+		return response, nil
+
+	}
+
+	response := &pb.RegisterResponse{
+		Message:  "Регистрация успешна",
+		Database: dbName,
+		Status:   http.StatusOK,
+	}
+
+	return response, nil
+}
+
+func (s *DbServiceServer) Login(_ context.Context, req *pb.LoginRequest) (*pb.LoginResponse, error) {
+
+	dbName, err := checkUser(req)
+
+	if err != nil {
+		response := &pb.LoginResponse{
+			Message:  "Внутренняя ошибка: " + err.Error(),
+			Database: "",
+			Status:   http.StatusInternalServerError,
+		}
+		return response, nil
+	}
+
+	if dbName == "" {
+		response := &pb.LoginResponse{
+			Message:  "Ошибка нахождения базы данных: " + err.Error(),
+			Database: "",
+			Status:   http.StatusInternalServerError,
+		}
+		return response, nil
+	}
+	// Например, через другие микросервисы или прямой запрос в базу данных.
+
+	// Успешний ответ сервера
+	response := &pb.LoginResponse{
+		Message:  "Пользователь найден",
+		Database: dbName,
+		Status:   http.StatusOK,
+	}
+
+	return response, nil
 }
 
 func main() {
@@ -299,15 +559,59 @@ func main() {
 		log.Fatal("Error loading .env file")
 	}
 
+	/*r := mux.NewRouter()
+
+	authServiceName := os.Getenv("AUTH_SERVICE_NAME")
+
+	// Регистрация маршрутов
+	r.HandleFunc(fmt.Sprintf("/%s/register", authServiceName), registerHandler).Methods("POST")
+	r.HandleFunc(fmt.Sprintf("/%s/test", authServiceName), getTest).Methods("GET")
+	r.HandleFunc(fmt.Sprintf("/%s/login", authServiceName), loginHandler).Methods("GET")
+
+	log.Println("auth-service запущен на порту 8081")
+	err := http.ListenAndServe(":8081", r)
 	if err != nil {
-		log.Fatal(err)
+		log.Fatalf("Ошибка запуска сервера: %v", err)
+	}*/
+	// Чтение порта из переменной окружения (например, ":50051")
+	/*port := os.Getenv("AUTH_SERVICE_PORT")
+	if port == "" {
+		port = "50051" // если не указано в переменной окружения, используем порт по умолчанию
+	}*/
+
+	// Инициализируем TCP соединение для gRPC сервера
+	lis, err := net.Listen("tcp", ":8081")
+	if err != nil {
+		log.Fatalf("Не удалось запустить сервер: %v", err)
 	}
 
-	r := mux.NewRouter()
-	r.HandleFunc("/register", registerHandler).Methods("POST")
-	r.HandleFunc("/create-db", createDatabaseHandler).Methods("POST")
-	r.HandleFunc("/users", getAllUsersHandler).Methods("GET")
+	/*// Загрузка TLS-учетных данных
+	certFile := "dbservice/ssl/cert.pem" // Укажите путь к вашему сертификату
+	keyFile := "dbservice/ssl/key.pem"   // Укажите путь к вашему ключу
+	creds, err := credentials.NewServerTLSFromFile(certFile, keyFile)
+	if err != nil {
+		log.Fatalf("Не удалось загрузить сертификаты: %v", err)
+	}
 
-	log.Println("db-server запущен на порту 8080")
-	log.Fatal(http.ListenAndServe(":8080", r))
+	// Создаем gRPC сервер с TLS
+	opts := []grpc.ServerOption{
+		grpc.Creds(creds),                      // Используйте креденшлы
+		grpc.MaxRecvMsgSize(1024 * 1024 * 150), // Увеличить размер принимаемых сообщений до 150MB
+		grpc.MaxSendMsgSize(1024 * 1024 * 150), // Увеличить размер отправляемых сообщений до 150MB
+	}*/
+
+	grpcServer := grpc.NewServer( /*opts...*/ )
+
+	// Включаем отражение
+	reflection.Register(grpcServer)
+
+	// Регистрируем наш AuthServiceServer
+	pb.RegisterDbServiceServer(grpcServer, &DbServiceServer{})
+
+	log.Printf("gRPC сервер запущен на %s с TLS", ":8081")
+
+	// Запуск сервера
+	if err := grpcServer.Serve(lis); err != nil {
+		log.Fatalf("Ошибка запуска gRPC сервера: %v", err)
+	}
 }

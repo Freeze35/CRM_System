@@ -5,6 +5,6 @@
     <file url="file://$PROJECT_DIR$/dbservice/migrations/authDB/1_add-companies-table.down.sql" dialect="PostgreSQL" />
     <file url="file://$PROJECT_DIR$/dbservice/migrations/authDB/1_add-companies-table.up.sql" dialect="PostgreSQL" />
     <file url="file://$PROJECT_DIR$/dbservice/migrations/authDB/2_add-auth-table.up.sql" dialect="PostgreSQL" />
-    <file url="file://$PROJECT_DIR$/dbservice/migrations/companyDB/users/1_add-users-table.up.sql" dialect="PostgreSQL" />
+    <file url="file://$PROJECT_DIR$/dbservice/migrations/companyDB/1_add-users-table.up.sql" dialect="PostgreSQL" />
   </component>
 </project>

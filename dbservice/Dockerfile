@@ -29,7 +29,7 @@ COPY --from=builder /app/migrations /app/migrations
 COPY --from=builder /app/.env /app/.env
 
 # Указываем порт для приложения
-EXPOSE 8080
+EXPOSE 8081
 
 # Запускаем приложение
 CMD ["/app/dbservice"]

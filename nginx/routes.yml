@@ -1,0 +1,17 @@
+# traefik/routes.yml
+
+http:
+  routers:
+    auth:
+      rule: "Host(`localhost`)"
+      service: auth-service
+      entryPoints:
+        - web
+      middlewares:
+        - jwt-auth
+
+  services:
+    auth-service:
+      loadBalancer:
+        servers:
+          - url: "http://localhost:50051"

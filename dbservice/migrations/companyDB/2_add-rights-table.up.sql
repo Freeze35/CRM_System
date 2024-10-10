@@ -1,0 +1,5 @@
+CREATE TABLE IF NOT EXISTS rights
+(
+    id   SERIAL PRIMARY KEY,
+    roles VARCHAR(100) NOT NULL UNIQUE
+    );

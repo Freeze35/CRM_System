@@ -20,7 +20,7 @@ WORKDIR /app
 COPY .env .env
 
 # Указываем порт для приложения
-EXPOSE 8081
+EXPOSE ${AUTH_SERVICE_PORT}
 
 # Запускаем приложение
 CMD ["./auth"]

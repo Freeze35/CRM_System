@@ -1,0 +1,3 @@
+map $jwt_secret {
+  default "JWT_SECRET_KEY";  # Переменная окружения, подставляемая через envsubst
+}

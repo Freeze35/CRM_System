@@ -1,0 +1,23 @@
+{
+    admin off  # Отключаем админ-интерфейс
+}
+
+# Прокси на gRPC-сервис через HTTP/2 (H2C) без шифрования
+http://localhost {
+    reverse_proxy testauth-auth-1:50051 {
+        transport http {
+            versions h2c  # Включаем поддержку HTTP/2 без шифрования (H2C)
+        }
+    }
+}
+
+# Прокси на gRPC-сервис через HTTPS
+https://localhost:443 {
+    reverse_proxy testauth-auth-1:50051 {
+        transport http {
+            versions h2c  # Поддержка HTTP/2 через HTTPS
+            tls_insecure_skip_verify  # Пропускаем проверку сертификатов (если используется самоподписанный сертификат)
+        }
+    }
+    tls internal  # Используем встроенный сертификат для HTTPS
+}

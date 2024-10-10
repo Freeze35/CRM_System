@@ -6,5 +6,5 @@ CREATE TABLE IF NOT EXISTS authUsers
     password  VARCHAR(100) NOT NULL,     -- Пароль пользователя
     companyId INT NOT NULL,              -- Ссылка на колонку id в таблице companies
     createdAt TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP,  -- Время создания
-    FOREIGN KEY (companyId) REFERENCES companies(id)  -- Внешний ключ, связывающий с таблицей companies
+    FOREIGN KEY (companyId) REFERENCES companies(id) ON DELETE CASCADE -- Внешний ключ
 );
