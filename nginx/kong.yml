@@ -20,7 +20,7 @@ routes:
   - name: register-route  # Имя маршрута для регистрации
     service: auth-service
     paths:
-      - /protobuff.AuthService/Register  # Путь для метода Register
+      - /dbservice.AuthService/Register  # Путь для метода Register
     protocols:
       - grpcs
     strip_path: false
@@ -37,7 +37,7 @@ routes:
   - name: get-user-route  # Имя маршрута для метода GetUser в DB-сервисе
     service: db-service
     paths:
-      - /protobuff.RegisterDBS/RegisterDBS  # Путь для метода GetUser
+      - /dbservice.RegisterDBS/RegisterDBS  # Путь для метода GetUser
     protocols:
       - grpcs
     strip_path: false

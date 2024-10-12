@@ -22,13 +22,18 @@ clean:
 
 proto-auth:
 	protoc --go_out=./auth/proto --go-grpc_out=./auth/proto ./auth/proto/auth.proto
+	protoc --go_out=./auth/proto --go-grpc_out=./auth/proto ./dbservice/proto/dbservice.proto
+
 
 proto-dbservice:
 	protoc --go_out=./dbservice/proto --go-grpc_out=./dbservice/proto ./dbservice/proto/dbservice.proto
 
+#Создать ключи для jwt token (при генерации публичного потребуется ввести пароль создания )
 opensslkeys:
-	openssl genpkey -algorithm RSA -out ./nginx/opensslkeys/private_key.pem -aes256 -pass pass:standard_password
-	openssl rsa -in ./nginx/opensslkeys/private_key.pem -pubout -out ./nginx/opensslkeys/public_key.pem
+	openssl genpkey -algorithm RSA -out ./auth/opensslkeys/private_key.pem -aes256 -pass pass:standard_password
+	openssl rsa -in ./auth/opensslkeys/private_key.pem -pubout -out ./auth/opensslkeys/public_key.pem
+	copy .\auth\opensslkeys\private_key.pem .\nginx\opensslkeys\private_key.pem
+	copy .\auth\opensslkeys\public_key.pem .\nginx\opensslkeys\public_key.pem
 
 auth-ssl:
 	openssl req -x509 -newkey rsa:4096 -keyout auth/ssl/key.pem -out auth/ssl/cert.pem -days 365 -nodes

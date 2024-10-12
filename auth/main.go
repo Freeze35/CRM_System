@@ -4,33 +4,30 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
-	"encoding/json"
 	"fmt"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/reflection"
-	"io"
 	"io/ioutil"
 	"log"
 	"net"
 	"net/http"
 	"os"
-	"testAuth/proto/protobuff/auth"
+	auth "testAuth/proto/auth"
+	dbservice "testAuth/proto/dbservice"
 	"testAuth/utils"
+	"time"
 )
-
-// WriteJSON - функция для записи JSON-ответа
-func WriteJSON(w http.ResponseWriter, status int, v any) error {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	return json.NewEncoder(w).Encode(v)
-}
 
 type AuthServiceServer struct {
 	auth.UnimplementedAuthServiceServer
 }
 
-func registerHandler(w http.ResponseWriter, r *http.Request) {
+type DBServiceServer struct {
+	dbservice.UnimplementedDbServiceServer
+}
+
+/*func registerHandler(w http.ResponseWriter, r *http.Request) {
 	// Структура для JSON-данных
 	type RegisterRequest struct {
 		Username  string `json:"username"`
@@ -100,13 +97,13 @@ func registerHandler(w http.ResponseWriter, r *http.Request) {
 		"token":    token,
 	}
 	WriteJSON(w, http.StatusOK, response)
-}
+}*/
 
-func getTest(w http.ResponseWriter, r *http.Request) {
+/*func getTest(w http.ResponseWriter, r *http.Request) {
 	// Здесь вы можете выполнить нужные действия и вернуть ответ
 	w.WriteHeader(http.StatusOK)
 	w.Write([]byte("Тест успешен!"))
-}
+}*/
 
 /*func loginHandler(w http.ResponseWriter, r *http.Request) {
 	username := r.URL.Query().Get("username")
@@ -134,7 +131,7 @@ func getTest(w http.ResponseWriter, r *http.Request) {
 	WriteJSON(w, http.StatusOK, response)
 }*/
 
-func usersHandler(w http.ResponseWriter, r *http.Request) {
+/*func usersHandler(w http.ResponseWriter, r *http.Request) {
 	// Обработка запроса списка пользователей
 }
 
@@ -147,20 +144,87 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
 		"token": token,
 	}
 	WriteJSON(w, http.StatusOK, response)
+}*/
+
+func callRegisterCompany(client dbservice.DbServiceClient, req *auth.RegisterAuthRequest) (response *auth.RegisterAuthResponse, err error) {
+	// Создаем контекст с тайм-аутом для запроса
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+
+	// Формируем запрос на регистрацию компании
+	req1 := &dbservice.RegisterCompanyRequest{
+		NameCompany: req.NameCompany,
+		Address:     req.Address,
+		Email:       req.Email,
+		Phone:       req.Phone,
+		Password:    req.Password,
+	}
+
+	// Выполняем gRPC вызов RegisterCompany
+	resDB, err := client.RegisterCompany(ctx, req1)
+	if err != nil {
+		response := &auth.RegisterAuthResponse{
+			Message:  "Внутреняя ошибка регистрации: " + err.Error(),
+			Database: "",
+			Token:    "",
+			Status:   http.StatusInternalServerError,
+		}
+
+		log.Printf("Ошибка при вызове RegisterCompany: %v", err)
+		return response, nil
+	}
+
+	/*// Обрабатываем ответ
+	log.Printf("Ответ сервера: Message: %s, Database: %s, Status: %d", res.GetMessage(), res.GetDatabase(), res.GetStatus())*/
+
+	if resDB.Status == http.StatusOK {
+		// Пример успешного ответа с сгенерированным токеном
+		token, err := utils.JwtGenerate()
+		if err != nil {
+			fmt.Sprintf("Ошибка: %s", err)
+		}
+		response := &auth.RegisterAuthResponse{
+			Message:  resDB.Message,
+			Database: resDB.Database,
+			Token:    token,
+			Status:   http.StatusOK,
+		}
+		return response, nil
+	} else {
+		response := &auth.RegisterAuthResponse{
+			Message:  "Внутренняя ошибка создания компании : " + resDB.Message,
+			Database: "",
+			Token:    "",
+			Status:   uint32(resDB.Status),
+		}
+		return response, nil
+	}
 }
 
-// Реализация метода Register
-func (s *AuthServiceServer) Register(ctx context.Context, req *auth.RegisterRequest) (*auth.RegisterResponse, error) {
-	log.Printf("Получен запрос на регистрацию пользователя: %v", req.Username)
+// Register Реализация метода Register
+func (s *AuthServiceServer) Register(ctx context.Context, req *auth.RegisterAuthRequest) (*auth.RegisterAuthResponse, error) {
+	log.Printf("Получен запрос на регистрацию пользователя: %v", req.Email)
 
-	// Здесь должна быть логика для создания базы данных и регистрации пользователя.
-	// Например, через другие микросервисы или прямой запрос в базу данных.
+	//dbServicePath := os.Getenv("DB_SERVER_URL") //Требуется поменять соединение в случае,
+	//разделения на отдельные докер соединения (то есть без docker-compose)
 
-	// Пример успешного ответа с сгенерированным токеном
-	response := &auth.RegisterResponse{
-		Message:  "Регистрация успешна",
-		Database: "название_базы_данных",
-		Token:    "сгенерированный_токен",
+	// Устанавливаем тайм-аут для соединения
+	/*ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()*/
+
+	// Устанавливаем соединение с gRPC сервером dbService с тайм-аутом
+	conn, err := grpc.NewClient("dbservice:8081", grpc.WithInsecure())
+	if err != nil {
+		log.Printf("Не удалось подключиться к серверу: %v", err)
+
+		return nil, err
+	}
+	defer conn.Close()
+
+	client := dbservice.NewDbServiceClient(conn)
+	response, err := callRegisterCompany(client, req)
+	if err != nil {
+		return nil, err
 	}
 
 	return response, nil

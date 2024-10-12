@@ -13,7 +13,7 @@ import (
 	"net/http"
 	"os"
 	"testAuth/migrations"
-	pb "testAuth/proto/protobuff" // Импортируйте сгенерированный пакет из протобуферов
+	pb "testAuth/proto/dbservice" // Импортируйте сгенерированный пакет из протобуферов
 	"testAuth/utils"
 )
 
@@ -228,57 +228,52 @@ func dropClientDatabase(dbName string) error {
 	return nil
 }
 
-func registerCompany(req *pb.RegisterRequest) (nameDB string, err error) {
-	// Находим наименование авторизационной базы данных
+func registerCompany(req *pb.RegisterCompanyRequest) (nameDB string, err error, status int32) {
 	authDBName := os.Getenv("DB_AUTH_NAME")
-
-	// Создаём новую базу данных для пользователя
 	dbName, err := createClientDatabase()
 	if err != nil {
-		return "", err
+		return "", err, http.StatusInternalServerError
 	}
 
-	// Подключаемся к авторизационной базе данных
 	dsn := dsnString(authDBName)
 	dbConn, err := sql.Open("postgres", dsn)
 	if err != nil {
-		return "", err
+		return "", err, http.StatusInternalServerError
 	}
-	defer func() {
-		if cerr := dbConn.Close(); cerr != nil {
-			log.Fatal(fmt.Sprintf("Ошибка при закрытии базы данных %s: %v", dbName, cerr))
-		}
-	}()
+	defer dbConn.Close()
 
-	// Начинаем транзакцию
 	tx, err := dbConn.Begin()
 	if err != nil {
-		return "", fmt.Errorf("не удалось начать транзакцию: %v", err)
+		return "", fmt.Errorf("не удалось начать транзакцию: %v", err), http.StatusInternalServerError
 	}
 
-	// Откат транзакции в случае ошибки
+	// Откат транзакции tx в случае ошибки
 	defer func() {
 		if err != nil {
 			_ = tx.Rollback()
-			log.Printf("Транзакция откатана из-за ошибки: %v", err)
-			// Удаляем базу данных, если произошла ошибка
-			if dropErr := dropClientDatabase(dbName); dropErr != nil {
-				log.Printf("Ошибка при удалении базы данных %s: %v", dbName, dropErr)
-			}
+			log.Printf("Транзакция откатана (auth DB) из-за ошибки: %v", err)
 		}
 	}()
 
-	// Вставляем новую компанию и получаем её ID
 	var companyId int
-	err = tx.QueryRow(
-		"INSERT INTO companies (name, address, dbname) VALUES ($1, $2, $3) RETURNING id",
-		req.NameCompany, req.Address, dbName,
-	).Scan(&companyId)
+	query := "SELECT id FROM companies WHERE name = $1 AND address = $2"
+	err = tx.QueryRow(query, req.NameCompany, req.Address).Scan(&companyId)
 	if err != nil {
-		return "", fmt.Errorf("не удалось создать компанию: %v", err)
+		if err == sql.ErrNoRows {
+			// Компания не найдена, продолжаем вставку
+			err = tx.QueryRow(
+				"INSERT INTO companies (name, address, dbname) VALUES ($1, $2, $3) RETURNING id",
+				req.NameCompany, req.Address, dbName,
+			).Scan(&companyId)
+			if err != nil {
+				return "", fmt.Errorf("не удалось создать компанию: %v", err), http.StatusInternalServerError
+			}
+		} else {
+			return "", fmt.Errorf("ошибка при проверке существования компании: %v", err), http.StatusUnprocessableEntity
+		}
+	} else {
+		return "", fmt.Errorf("компания с таким именем и адресом уже существует: " + req.NameCompany), http.StatusConflict
 	}
-
-	// Вставляем пользователя, привязанного к компании
 
 	var authUserId int
 	err = tx.QueryRow(
@@ -286,74 +281,95 @@ func registerCompany(req *pb.RegisterRequest) (nameDB string, err error) {
 		req.Email, req.Phone, req.Password, companyId,
 	).Scan(&authUserId)
 	if err != nil {
-		return "", fmt.Errorf("не удалось создать пользователя: %v", err)
+		return "", fmt.Errorf("не удалось создать пользователя: %v", err), http.StatusInternalServerError
 	}
 
-	// Если все прошло успешно, фиксируем транзакцию
 	err = tx.Commit()
 	if err != nil {
-		return "", fmt.Errorf("не удалось зафиксировать транзакцию: %v", err)
+		return "", fmt.Errorf("не удалось зафиксировать транзакцию auth DB: %v", err), http.StatusInternalServerError
 	}
 
-	// Подключаемся к базе данных компании
+	// Работа с базой данных компании
 	dsnC := dsnString(dbName)
 	dbConnCompany, err := sql.Open("postgres", dsnC)
 	if err != nil {
-		return "", err
+		return "", err, http.StatusLocked
 	}
-	defer func() {
-		if cerr := dbConnCompany.Close(); cerr != nil {
-			log.Fatal(fmt.Sprintf("Ошибка при закрытии базы данных %s: %v", dbName, cerr))
-		}
-	}()
+	defer dbConnCompany.Close()
 
-	// Начинаем транзакцию для компании
 	txc, err := dbConnCompany.Begin()
-	// Откат транзакции в случае ошибки
+	if err != nil {
+		return "", fmt.Errorf("не удалось начать транзакцию для компании: %v", err), http.StatusInternalServerError
+	}
+
+	// Откат транзакции txc в случае ошибки
 	defer func() {
 		if err != nil {
 			_ = txc.Rollback()
-			log.Printf("Транзакция откатана из-за ошибки: %v", err)
-			// Удаляем базу данных, если произошла ошибка
-			if dropErr := dropClientDatabase(dbName); dropErr != nil {
-				log.Printf("Ошибка при удалении базы данных %s: %v", dbName, dropErr)
-			}
+			log.Printf("Транзакция откатана (company DB) из-за ошибки: %v", err)
+			// Откат действий в первой базе данных
+			rollbackAuthDB(dbConn, companyId, authUserId)
 		}
 	}()
 
 	role := os.Getenv("FIRST_ROLE")
 
-	// Добавляем новую роль
 	var roleID int
 	err = txc.QueryRow("INSERT INTO rights (roles) VALUES ($1) RETURNING id", role).Scan(&roleID)
 	if err != nil {
-		return "", fmt.Errorf("не удалось добавить название прав: %v", err)
+		return "", fmt.Errorf("не удалось добавить название прав: %v", err), http.StatusNotImplemented
 	}
 
-	// Вставляем пользователя, привязанного к компании
 	_, err = txc.Exec(
 		"INSERT INTO users (roles, companyId, rightsId, authId) VALUES ($1, $2, $3, $4)",
 		role, companyId, roleID, authUserId,
 	)
 	if err != nil {
-		return "", fmt.Errorf("не удалось добавить пользователя: %v", err)
+		return "", fmt.Errorf("не удалось добавить пользователя: %v", err), http.StatusNotImplemented
 	}
 
-	// Добавляем доступные действия для новой роли
 	_, err = txc.Exec(
 		"INSERT INTO availableactions (roleId, createTasks, createChats, addWorkers) VALUES ($1, $2, $3, $4)",
-		roleID, true, true, true)
+		roleID, true, true, true,
+	)
 	if err != nil {
-		return "", fmt.Errorf("не удалось расширенные права пользователя: %v", err)
+		return "", fmt.Errorf("не удалось добавить доступные действия для роли: %v", err), http.StatusNotImplemented
 	}
 
-	// Если все прошло успешно, фиксируем транзакцию
 	err = txc.Commit()
 	if err != nil {
-		return "", fmt.Errorf("не удалось зафиксировать транзакцию, внутри компании: %v", err)
+		return "", fmt.Errorf("не удалось зафиксировать транзакцию компании: %v", err), http.StatusNotImplemented
 	}
 
-	return dbName, nil
+	return dbName, nil, http.StatusOK
+}
+
+// Функция для отката изменений в auth DB
+func rollbackAuthDB(dbConn *sql.DB, companyId, authUserId int) {
+	tx, err := dbConn.Begin()
+	if err != nil {
+		log.Printf("Ошибка при начале откатной транзакции: %v", err)
+		return
+	}
+
+	_, err = tx.Exec("DELETE FROM authusers WHERE id = $1", authUserId)
+	if err != nil {
+		tx.Rollback()
+		log.Printf("Ошибка при удалении пользователя: %v", err)
+		return
+	}
+
+	_, err = tx.Exec("DELETE FROM companies WHERE id = $1", companyId)
+	if err != nil {
+		tx.Rollback()
+		log.Printf("Ошибка при удалении компании: %v", err)
+		return
+	}
+
+	err = tx.Commit()
+	if err != nil {
+		log.Printf("Ошибка при фиксации отката: %v", err)
+	}
 }
 
 func checkUser(req *pb.LoginRequest) (dbName string, err error) {
@@ -361,7 +377,7 @@ func checkUser(req *pb.LoginRequest) (dbName string, err error) {
 	dsn := dsnString(os.Getenv("DB_AUTH_NAME"))
 	db, err := sql.Open("postgres", dsn)
 	if err != nil {
-		log.Fatalf("Ошибка подключения базы данных: %s", err)
+		log.Printf("Ошибка подключения базы данных: %s", err)
 		return "", err
 	}
 	defer func() {
@@ -493,22 +509,22 @@ type DbServiceServer struct {
 	pb.UnimplementedDbServiceServer
 }
 
-func (s *DbServiceServer) RegisterCompany(_ context.Context, req *pb.RegisterRequest) (*pb.RegisterResponse, error) {
+func (s *DbServiceServer) RegisterCompany(_ context.Context, req *pb.RegisterCompanyRequest) (*pb.RegisterCompanyResponse, error) {
 
 	log.Printf("Получен запрос на регистрацию организации: %v", req.NameCompany)
 
-	dbName, err := registerCompany(req)
+	dbName, err, status := registerCompany(req)
 	if err != nil {
-		response := &pb.RegisterResponse{
-			Message:  "Ошибка регистрации: " + err.Error(),
+		response := &pb.RegisterCompanyResponse{
+			Message:  err.Error(),
 			Database: dbName,
-			Status:   http.StatusInternalServerError,
+			Status:   status,
 		}
 		return response, nil
 
 	}
 
-	response := &pb.RegisterResponse{
+	response := &pb.RegisterCompanyResponse{
 		Message:  "Регистрация успешна",
 		Database: dbName,
 		Status:   http.StatusOK,
