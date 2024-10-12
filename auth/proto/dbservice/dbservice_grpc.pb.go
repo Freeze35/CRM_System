@@ -4,7 +4,7 @@
 // - protoc             v5.27.3
 // source: dbservice/proto/dbservice.proto
 
-package protobuff
+package dbservice
 
 import (
 	context "context"
@@ -28,7 +28,7 @@ const (
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type DbServiceClient interface {
 	// Метод для регистрации
-	RegisterCompany(ctx context.Context, in *RegisterRequest, opts ...grpc.CallOption) (*RegisterResponse, error)
+	RegisterCompany(ctx context.Context, in *RegisterCompanyRequest, opts ...grpc.CallOption) (*RegisterCompanyResponse, error)
 	// Метод для логинизации
 	Login(ctx context.Context, in *LoginRequest, opts ...grpc.CallOption) (*LoginResponse, error)
 }
@@ -41,9 +41,9 @@ func NewDbServiceClient(cc grpc.ClientConnInterface) DbServiceClient {
 	return &dbServiceClient{cc}
 }
 
-func (c *dbServiceClient) RegisterCompany(ctx context.Context, in *RegisterRequest, opts ...grpc.CallOption) (*RegisterResponse, error) {
+func (c *dbServiceClient) RegisterCompany(ctx context.Context, in *RegisterCompanyRequest, opts ...grpc.CallOption) (*RegisterCompanyResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(RegisterResponse)
+	out := new(RegisterCompanyResponse)
 	err := c.cc.Invoke(ctx, DbService_RegisterCompany_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
@@ -66,7 +66,7 @@ func (c *dbServiceClient) Login(ctx context.Context, in *LoginRequest, opts ...g
 // for forward compatibility.
 type DbServiceServer interface {
 	// Метод для регистрации
-	RegisterCompany(context.Context, *RegisterRequest) (*RegisterResponse, error)
+	RegisterCompany(context.Context, *RegisterCompanyRequest) (*RegisterCompanyResponse, error)
 	// Метод для логинизации
 	Login(context.Context, *LoginRequest) (*LoginResponse, error)
 	mustEmbedUnimplementedDbServiceServer()
@@ -79,7 +79,7 @@ type DbServiceServer interface {
 // pointer dereference when methods are called.
 type UnimplementedDbServiceServer struct{}
 
-func (UnimplementedDbServiceServer) RegisterCompany(context.Context, *RegisterRequest) (*RegisterResponse, error) {
+func (UnimplementedDbServiceServer) RegisterCompany(context.Context, *RegisterCompanyRequest) (*RegisterCompanyResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method RegisterCompany not implemented")
 }
 func (UnimplementedDbServiceServer) Login(context.Context, *LoginRequest) (*LoginResponse, error) {
@@ -107,7 +107,7 @@ func RegisterDbServiceServer(s grpc.ServiceRegistrar, srv DbServiceServer) {
 }
 
 func _DbService_RegisterCompany_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(RegisterRequest)
+	in := new(RegisterCompanyRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
@@ -119,7 +119,7 @@ func _DbService_RegisterCompany_Handler(srv interface{}, ctx context.Context, de
 		FullMethod: DbService_RegisterCompany_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(DbServiceServer).RegisterCompany(ctx, req.(*RegisterRequest))
+		return srv.(DbServiceServer).RegisterCompany(ctx, req.(*RegisterCompanyRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
