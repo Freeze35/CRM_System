@@ -8,7 +8,7 @@ service dbService {
   // Метод для регистрации
   rpc RegisterCompany (RegisterCompanyRequest) returns (RegisterCompanyResponse);
   // Метод для логинизации
-  rpc Login (LoginRequest) returns (LoginResponse);
+  rpc LoginDB (LoginDBRequest) returns (LoginDBResponse);
 }
 
 message RegisterCompanyRequest {
@@ -25,13 +25,13 @@ message RegisterCompanyResponse {
   int32 status = 3;
 }
 
-message LoginRequest {
+message LoginDBRequest {
   string email = 1;
   string phone = 2;
   string password = 3;
 }
 
-message LoginResponse {
+message LoginDBResponse {
   string message = 1;
   string database = 2;
   int32 status = 3;

@@ -7,6 +7,7 @@ option go_package = "./auth/;dbservice";
 service AuthService {
   // Метод для регистрации
   rpc Register (RegisterAuthRequest) returns (RegisterAuthResponse);
+  rpc Login (LoginAuthRequest) returns (LoginAuthResponse);
 }
 
 message RegisterAuthRequest {
@@ -23,4 +24,17 @@ message RegisterAuthResponse {
   string database = 2;
   string token = 3;
   uint32 status = 4;
+}
+
+message LoginAuthRequest {
+  string email = 1;
+  string phone = 2;
+  string password = 3;
+}
+
+message LoginAuthResponse {
+  string message = 1;
+  string database = 2;
+  string token = 3;
+  int32 status = 4;
 }

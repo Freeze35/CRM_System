@@ -20,7 +20,7 @@ const _ = grpc.SupportPackageIsVersion9
 
 const (
 	DbService_RegisterCompany_FullMethodName = "/protobuff.dbService/RegisterCompany"
-	DbService_Login_FullMethodName           = "/protobuff.dbService/Login"
+	DbService_LoginDB_FullMethodName         = "/protobuff.dbService/LoginDB"
 )
 
 // DbServiceClient is the client API for DbService service.
@@ -30,7 +30,7 @@ type DbServiceClient interface {
 	// Метод для регистрации
 	RegisterCompany(ctx context.Context, in *RegisterCompanyRequest, opts ...grpc.CallOption) (*RegisterCompanyResponse, error)
 	// Метод для логинизации
-	Login(ctx context.Context, in *LoginRequest, opts ...grpc.CallOption) (*LoginResponse, error)
+	LoginDB(ctx context.Context, in *LoginDBRequest, opts ...grpc.CallOption) (*LoginDBResponse, error)
 }
 
 type dbServiceClient struct {
@@ -51,10 +51,10 @@ func (c *dbServiceClient) RegisterCompany(ctx context.Context, in *RegisterCompa
 	return out, nil
 }
 
-func (c *dbServiceClient) Login(ctx context.Context, in *LoginRequest, opts ...grpc.CallOption) (*LoginResponse, error) {
+func (c *dbServiceClient) LoginDB(ctx context.Context, in *LoginDBRequest, opts ...grpc.CallOption) (*LoginDBResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(LoginResponse)
-	err := c.cc.Invoke(ctx, DbService_Login_FullMethodName, in, out, cOpts...)
+	out := new(LoginDBResponse)
+	err := c.cc.Invoke(ctx, DbService_LoginDB_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -68,7 +68,7 @@ type DbServiceServer interface {
 	// Метод для регистрации
 	RegisterCompany(context.Context, *RegisterCompanyRequest) (*RegisterCompanyResponse, error)
 	// Метод для логинизации
-	Login(context.Context, *LoginRequest) (*LoginResponse, error)
+	LoginDB(context.Context, *LoginDBRequest) (*LoginDBResponse, error)
 	mustEmbedUnimplementedDbServiceServer()
 }
 
@@ -82,8 +82,8 @@ type UnimplementedDbServiceServer struct{}
 func (UnimplementedDbServiceServer) RegisterCompany(context.Context, *RegisterCompanyRequest) (*RegisterCompanyResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method RegisterCompany not implemented")
 }
-func (UnimplementedDbServiceServer) Login(context.Context, *LoginRequest) (*LoginResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method Login not implemented")
+func (UnimplementedDbServiceServer) LoginDB(context.Context, *LoginDBRequest) (*LoginDBResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method LoginDB not implemented")
 }
 func (UnimplementedDbServiceServer) mustEmbedUnimplementedDbServiceServer() {}
 func (UnimplementedDbServiceServer) testEmbeddedByValue()                   {}
@@ -124,20 +124,20 @@ func _DbService_RegisterCompany_Handler(srv interface{}, ctx context.Context, de
 	return interceptor(ctx, in, info, handler)
 }
 
-func _DbService_Login_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(LoginRequest)
+func _DbService_LoginDB_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(LoginDBRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(DbServiceServer).Login(ctx, in)
+		return srv.(DbServiceServer).LoginDB(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: DbService_Login_FullMethodName,
+		FullMethod: DbService_LoginDB_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(DbServiceServer).Login(ctx, req.(*LoginRequest))
+		return srv.(DbServiceServer).LoginDB(ctx, req.(*LoginDBRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -154,8 +154,8 @@ var DbService_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _DbService_RegisterCompany_Handler,
 		},
 		{
-			MethodName: "Login",
-			Handler:    _DbService_Login_Handler,
+			MethodName: "LoginDB",
+			Handler:    _DbService_LoginDB_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},
