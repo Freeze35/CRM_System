@@ -148,7 +148,7 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
 
 func callRegisterCompany(client dbservice.DbServiceClient, req *auth.RegisterAuthRequest) (response *auth.RegisterAuthResponse, err error) {
 	// Создаем контекст с тайм-аутом для запроса
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*2)
 	defer cancel()
 
 	// Формируем запрос на регистрацию компании
@@ -212,17 +212,69 @@ func (s *AuthServiceServer) Register(ctx context.Context, req *auth.RegisterAuth
 	/*ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()*/
 
-	// Устанавливаем соединение с gRPC сервером dbService с тайм-аутом
-	conn, err := grpc.NewClient("dbservice:8081", grpc.WithInsecure())
+	// Устанавливаем соединение с gRPC сервером dbService
+	client, err, conn := utils.DbServiceConnector()
+	defer conn.Close()
 	if err != nil {
 		log.Printf("Не удалось подключиться к серверу: %v", err)
 
 		return nil, err
 	}
+	response, err := callRegisterCompany(client, req)
+	if err != nil {
+		return nil, err
+	}
+
+	return response, nil
+}
+
+func loginUser(client dbservice.DbServiceClient, req *auth.LoginAuthRequest) (response *auth.LoginAuthResponse, err error) {
+
+	// Формируем запрос на регистрацию компании
+	reqLogin := &dbservice.LoginDBRequest{
+		Email:    req.Email,
+		Phone:    req.Phone,
+		Password: req.Password,
+	}
+
+	// Создаем контекст с тайм-аутом для запроса
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*2)
+	defer cancel()
+
+	// Выполняем gRPC вызов RegisterCompany
+	resDB, err := client.LoginDB(ctx, reqLogin)
+
+	if err != nil {
+		response := &auth.LoginAuthResponse{
+			Message:  "Внутреняя ошибка логинизации: " + err.Error(),
+			Database: "",
+			Status:   http.StatusInternalServerError,
+		}
+
+		log.Printf("Ошибка при логинизации: %v", err)
+		return response, nil
+	}
+
+	response = &auth.LoginAuthResponse{
+		Message:  resDB.Message,
+		Database: resDB.Database,
+		Token:    "",
+		Status:   resDB.Status,
+	}
+	return response, nil
+}
+
+func (s *AuthServiceServer) Login(_ context.Context, req *auth.LoginAuthRequest) (*auth.LoginAuthResponse, error) {
+
+	// Устанавливаем соединение с gRPC сервером dbService
+	client, err, conn := utils.DbServiceConnector()
 	defer conn.Close()
 
-	client := dbservice.NewDbServiceClient(conn)
-	response, err := callRegisterCompany(client, req)
+	if err != nil {
+		return nil, err
+	}
+
+	response, err := loginUser(client, req)
 	if err != nil {
 		return nil, err
 	}

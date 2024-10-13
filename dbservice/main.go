@@ -211,7 +211,7 @@ func createClientDatabase() (nameDB string, err error) {
 	return users, nil
 }*/
 
-// dropClientDatabase удаляет базу данных по имени.
+/*// dropClientDatabase удаляет базу данных по имени.
 func dropClientDatabase(dbName string) error {
 	dsn := dsnString(os.Getenv("DB_AUTH_NAME")) // Получите данные для подключения к основной базе данных
 	dbConn, err := sql.Open("postgres", dsn)
@@ -226,7 +226,7 @@ func dropClientDatabase(dbName string) error {
 	}
 
 	return nil
-}
+}*/
 
 func registerCompany(req *pb.RegisterCompanyRequest) (nameDB string, err error, status int32) {
 	authDBName := os.Getenv("DB_AUTH_NAME")
@@ -372,7 +372,7 @@ func rollbackAuthDB(dbConn *sql.DB, companyId, authUserId int) {
 	}
 }
 
-func checkUser(req *pb.LoginRequest) (dbName string, err error) {
+func checkUser(req *pb.LoginDBRequest) (dbName string, err error) {
 
 	dsn := dsnString(os.Getenv("DB_AUTH_NAME"))
 	db, err := sql.Open("postgres", dsn)
@@ -399,8 +399,10 @@ func checkUser(req *pb.LoginRequest) (dbName string, err error) {
 
 	if err != nil {
 		if err == sql.ErrNoRows {
-			return "", nil // Пользователь не найден
+
+			return "", fmt.Errorf("пользователь не найден") // Пользователь не найден
 		}
+
 		return "", err // Ошибка при выполнении запроса
 	}
 
@@ -533,12 +535,12 @@ func (s *DbServiceServer) RegisterCompany(_ context.Context, req *pb.RegisterCom
 	return response, nil
 }
 
-func (s *DbServiceServer) Login(_ context.Context, req *pb.LoginRequest) (*pb.LoginResponse, error) {
+func (s *DbServiceServer) LoginDB(_ context.Context, req *pb.LoginDBRequest) (*pb.LoginDBResponse, error) {
 
 	dbName, err := checkUser(req)
 
 	if err != nil {
-		response := &pb.LoginResponse{
+		response := &pb.LoginDBResponse{
 			Message:  "Внутренняя ошибка: " + err.Error(),
 			Database: "",
 			Status:   http.StatusInternalServerError,
@@ -547,7 +549,7 @@ func (s *DbServiceServer) Login(_ context.Context, req *pb.LoginRequest) (*pb.Lo
 	}
 
 	if dbName == "" {
-		response := &pb.LoginResponse{
+		response := &pb.LoginDBResponse{
 			Message:  "Ошибка нахождения базы данных: " + err.Error(),
 			Database: "",
 			Status:   http.StatusInternalServerError,
@@ -557,7 +559,7 @@ func (s *DbServiceServer) Login(_ context.Context, req *pb.LoginRequest) (*pb.Lo
 	// Например, через другие микросервисы или прямой запрос в базу данных.
 
 	// Успешний ответ сервера
-	response := &pb.LoginResponse{
+	response := &pb.LoginDBResponse{
 		Message:  "Пользователь найден",
 		Database: dbName,
 		Status:   http.StatusOK,
