@@ -9,6 +9,8 @@ service dbService {
   rpc RegisterCompany (RegisterCompanyRequest) returns (RegisterCompanyResponse);
   // Метод для логинизации
   rpc LoginDB (LoginDBRequest) returns (LoginDBResponse);
+  // Сохранения сообщения в базе данных
+  rpc SaveMessage(SaveMessageRequest) returns (SaveMessageResponse);
 }
 
 message RegisterCompanyRequest {
@@ -36,3 +38,20 @@ message LoginDBResponse {
   string database = 2;
   int32 status = 3;
 }
+
+
+// Сообщение для запроса сохранения сообщения в базе данных
+message SaveMessageRequest {
+  string user_id = 1;         // ID пользователя
+  string chat_id = 2;         // ID чата
+  string message = 3;         // Текст сообщения
+  string dbName = 4;         // Название базы данных
+  int64 created_at = 5;       // Время создания сообщения (timestamp)
+}
+
+// Ответ для подтверждения сохранения сообщения
+message SaveMessageResponse {
+  string response = 1;           // Статус успеха
+  int32 status = 2;
+}
+

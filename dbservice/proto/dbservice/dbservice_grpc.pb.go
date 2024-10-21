@@ -21,6 +21,7 @@ const _ = grpc.SupportPackageIsVersion9
 const (
 	DbService_RegisterCompany_FullMethodName = "/protobuff.dbService/RegisterCompany"
 	DbService_LoginDB_FullMethodName         = "/protobuff.dbService/LoginDB"
+	DbService_SaveMessage_FullMethodName     = "/protobuff.dbService/SaveMessage"
 )
 
 // DbServiceClient is the client API for DbService service.
@@ -31,6 +32,8 @@ type DbServiceClient interface {
 	RegisterCompany(ctx context.Context, in *RegisterCompanyRequest, opts ...grpc.CallOption) (*RegisterCompanyResponse, error)
 	// Метод для логинизации
 	LoginDB(ctx context.Context, in *LoginDBRequest, opts ...grpc.CallOption) (*LoginDBResponse, error)
+	// Сохранения сообщения в базе данных
+	SaveMessage(ctx context.Context, in *SaveMessageRequest, opts ...grpc.CallOption) (*SaveMessageResponse, error)
 }
 
 type dbServiceClient struct {
@@ -61,6 +64,16 @@ func (c *dbServiceClient) LoginDB(ctx context.Context, in *LoginDBRequest, opts 
 	return out, nil
 }
 
+func (c *dbServiceClient) SaveMessage(ctx context.Context, in *SaveMessageRequest, opts ...grpc.CallOption) (*SaveMessageResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SaveMessageResponse)
+	err := c.cc.Invoke(ctx, DbService_SaveMessage_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // DbServiceServer is the server API for DbService service.
 // All implementations must embed UnimplementedDbServiceServer
 // for forward compatibility.
@@ -69,6 +82,8 @@ type DbServiceServer interface {
 	RegisterCompany(context.Context, *RegisterCompanyRequest) (*RegisterCompanyResponse, error)
 	// Метод для логинизации
 	LoginDB(context.Context, *LoginDBRequest) (*LoginDBResponse, error)
+	// Сохранения сообщения в базе данных
+	SaveMessage(context.Context, *SaveMessageRequest) (*SaveMessageResponse, error)
 	mustEmbedUnimplementedDbServiceServer()
 }
 
@@ -84,6 +99,9 @@ func (UnimplementedDbServiceServer) RegisterCompany(context.Context, *RegisterCo
 }
 func (UnimplementedDbServiceServer) LoginDB(context.Context, *LoginDBRequest) (*LoginDBResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method LoginDB not implemented")
+}
+func (UnimplementedDbServiceServer) SaveMessage(context.Context, *SaveMessageRequest) (*SaveMessageResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SaveMessage not implemented")
 }
 func (UnimplementedDbServiceServer) mustEmbedUnimplementedDbServiceServer() {}
 func (UnimplementedDbServiceServer) testEmbeddedByValue()                   {}
@@ -142,6 +160,24 @@ func _DbService_LoginDB_Handler(srv interface{}, ctx context.Context, dec func(i
 	return interceptor(ctx, in, info, handler)
 }
 
+func _DbService_SaveMessage_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SaveMessageRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DbServiceServer).SaveMessage(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DbService_SaveMessage_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DbServiceServer).SaveMessage(ctx, req.(*SaveMessageRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // DbService_ServiceDesc is the grpc.ServiceDesc for DbService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -156,6 +192,10 @@ var DbService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "LoginDB",
 			Handler:    _DbService_LoginDB_Handler,
+		},
+		{
+			MethodName: "SaveMessage",
+			Handler:    _DbService_SaveMessage_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

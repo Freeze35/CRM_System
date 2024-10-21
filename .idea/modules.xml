@@ -2,7 +2,7 @@
 <project version="4">
   <component name="ProjectModuleManager">
     <modules>
-      <module fileurl="file://$PROJECT_DIR$/.idea/testAuth.iml" filepath="$PROJECT_DIR$/.idea/testAuth.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/CRMSystem.iml" filepath="$PROJECT_DIR$/.idea/CRMSystem.iml" />
     </modules>
   </component>
 </project>
