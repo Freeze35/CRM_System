@@ -34,21 +34,27 @@ func NewDbServiceServer() *DbServiceServer {
 // Обеспечение использования уже существующего соединения
 func (s *DbServiceServer) GetDb(dsn string) (*sql.DB, error) {
 	if db, exists := s.dbs[dsn]; exists {
-		return db, nil // Возвращаем существующее соединение
+		// Проверяем, активен ли connection
+		if err := db.Ping(); err == nil {
+			return db, nil // Соединение активное, возвращаем его
+		}
+
+		// Соединение не активно, закрываем и удаляем из карты
+		delete(s.dbs, dsn)
+		_ = db.Close() // Игнорируем ошибки закрытия
 	}
 
-	// Если соединения нет, создаем новое
+	// Если соединения нет или оно было закрыто, создаем новое
 	db, err := sql.Open("postgres", dsn)
-
 	if err != nil {
 		return nil, err
 	}
 
 	// Настройка пула соединений
-	db.SetMaxOpenConns(25)                  // Максимальное количество доступных соединений обработки в пуле
-	db.SetMaxIdleConns(10)                  // Максимально количество соединений в простое
-	db.SetConnMaxLifetime(time.Hour)        //Максималоьное время существаования соединения как в простое так и активное
-	db.SetConnMaxIdleTime(time.Minute * 30) //Сколько времение может существовать открытое простаивающее соединение
+	db.SetMaxOpenConns(25)
+	db.SetMaxIdleConns(10)
+	db.SetConnMaxLifetime(time.Hour)
+	db.SetConnMaxIdleTime(time.Minute * 30)
 
 	s.dbs[dsn] = db // Сохраняем новое соединение в карту
 	return db, nil
