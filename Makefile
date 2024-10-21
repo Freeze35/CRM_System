@@ -28,6 +28,10 @@ proto-auth:
 proto-dbservice:
 	protoc --go_out=./dbservice/proto --go-grpc_out=./dbservice/proto ./dbservice/proto/dbservice.proto
 
+proto-chats:
+	protoc --go_out=./chats/proto --go-grpc_out=./chats/proto ./chats/proto/chat.proto
+	protoc --go_out=./chats/proto --go-grpc_out=./chats/proto ./dbservice/proto/dbservice.proto
+
 #Создать ключи для jwt token (при генерации публичного потребуется ввести пароль создания )
 opensslkeys:
 	openssl genpkey -algorithm RSA -out ./auth/opensslkeys/private_key.pem -aes256 -pass pass:standard_password

@@ -15,7 +15,44 @@ import (
 	"testAuth/migrations"
 	pb "testAuth/proto/dbservice" // Импортируйте сгенерированный пакет из протобуферов
 	"testAuth/utils"
+	"time"
 )
+
+type DbServiceServer struct {
+	pb.UnimplementedDbServiceServer
+	dbs map[string]*sql.DB // Карта для хранения соединений с базами данных
+}
+
+// Конструктор для инициализации DbServiceServer
+func NewDbServiceServer() *DbServiceServer {
+	return &DbServiceServer{
+		dbs: make(map[string]*sql.DB),
+	}
+}
+
+// Функция проверки существования открытого соединения с базой данных данных
+// Обеспечение использования уже существующего соединения
+func (s *DbServiceServer) GetDb(dsn string) (*sql.DB, error) {
+	if db, exists := s.dbs[dsn]; exists {
+		return db, nil // Возвращаем существующее соединение
+	}
+
+	// Если соединения нет, создаем новое
+	db, err := sql.Open("postgres", dsn)
+
+	if err != nil {
+		return nil, err
+	}
+
+	// Настройка пула соединений
+	db.SetMaxOpenConns(25)                  // Максимальное количество доступных соединений обработки в пуле
+	db.SetMaxIdleConns(10)                  // Максимально количество соединений в простое
+	db.SetConnMaxLifetime(time.Hour)        //Максималоьное время существаования соединения как в простое так и активное
+	db.SetConnMaxIdleTime(time.Minute * 30) //Сколько времение может существовать открытое простаивающее соединение
+
+	s.dbs[dsn] = db // Сохраняем новое соединение в карту
+	return db, nil
+}
 
 func dsnString(dbName string) string {
 	return fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disable",
@@ -26,71 +63,47 @@ func dsnString(dbName string) string {
 		dbName)
 }
 
-func initDB() error {
+func initDB(server *DbServiceServer) error {
 	// Загружаем переменные из файла .env
 	err := godotenv.Load("/app/.env")
-
 	if err != nil {
 		log.Fatalf("Ошибка загрузки .env файла: %v", err)
-	}
-
-	dsn := dsnString(os.Getenv("SERVER_NAME"))
-
-	db, err := sql.Open("postgres", dsn)
-	if err != nil {
-		log.Fatalf("Ошибка подключения базы данных: %s", err)
 		return err
 	}
-	defer func() {
-		if err := db.Close(); err != nil {
-			log.Printf("Ошибка при закрытии текущего соединения: %v", err)
-		}
-	}()
 
-	/*err = db.Ping()
-	if err != nil {
-		return err
-	}*/
-
-	//Находим наименование Авторизационной базы данных
+	// Находим наименование Авторизационной базы данных
 	authDBName := os.Getenv("DB_AUTH_NAME")
 
-	//создаём Авторизационную базу данных если она ещё не существует в докер образе
+	// Создаем Авторизационную базу данных, если она еще не существует
 	err = createInsideDB(authDBName)
 	if err != nil {
-		log.Fatal(fmt.Sprintf("ошибка создания внутренней БД ", err))
+		log.Fatalf("Ошибка создания внутренней БД: %v", err)
 		return err
 	}
 
-	//открываем базу данных Авторизации для обновления миграции
-	dsn = dsnString(authDBName)
+	// Открываем соединение с базой данных Авторизации
+	dsn := dsnString(authDBName)
+	// Получаем соединение с базой данных
+	authDB, err := server.GetDb(dsn)
 	if err != nil {
-		log.Fatalf("Ошибка подключения базы данных: %s", err)
+		log.Fatalf("Ошибка подключения к базе данных авторизации: %s", err)
 		return err
 	}
 
-	db, err = sql.Open("postgres", dsn)
+	// Добавляем соединение к базе данных авторизации в сервер
+	server.dbs[authDBName] = authDB
 
-	migratePath := ""
+	// Путь к миграциям
+	migratePath := os.Getenv("MIGRATION_AUTH_PATH")
 
-	migratePath = os.Getenv("MIGRATION_AUTH_PATH")
-	err = migrations.Migration(db, migratePath, authDBName)
+	// Выполняем миграцию для базы данных авторизации
+	err = migrations.Migration(authDB, migratePath, authDBName)
 	if err != nil {
-		log.Fatal(fmt.Sprintf("ошибка MIGRATION_AUTH_PATH ", err))
+		log.Fatalf("Ошибка миграции для %s: %v", authDBName, err)
 		return err
 	}
 
-	if err != nil {
-		log.Fatal(fmt.Sprintf("ошибка MIGRATION_COMPANIES_PATH ", err))
-		return err
-	}
-
-	defer func() {
-		if err := db.Close(); err != nil {
-			log.Printf("Ошибка при закрытии текущего соединения: %v", err)
-		}
-	}()
-
+	// Возвращаем nil, если все прошло успешно
 	return nil
 }
 
@@ -101,16 +114,17 @@ func createInsideDB(dbName string) error {
 
 	dsn := dsnString(os.Getenv("SERVER_NAME"))
 
-	// Открываем соединение с базой данных postgres
+	// Открываем соединение с базой данных postgres одиночное открытие базы данных
 	db, err := sql.Open("postgres", dsn)
+
 	if err != nil {
 		return fmt.Errorf("ошибка подключения к базе данных: %w", err)
 	}
-	defer func() {
+	/*defer func() {
 		if err := db.Close(); err != nil {
 			log.Printf("Ошибка при закрытии текущего соединения: %v", err)
 		}
-	}()
+	}()*/
 
 	// Проверяем, существует ли уже база данных
 	var exists bool
@@ -136,7 +150,7 @@ func createInsideDB(dbName string) error {
 	return nil
 }
 
-func createClientDatabase() (nameDB string, err error) {
+func createClientDatabase(server *DbServiceServer) (nameDB string, err error) {
 
 	//Создаём рандомное имя для базы даннхы компании
 	randomName := utils.RandomDBName(25)
@@ -149,16 +163,17 @@ func createClientDatabase() (nameDB string, err error) {
 
 	// Теперь подключаемся к только что созданной базе данных
 	newDSN := dsnString(randomName) // Создаем новое соединение к этой базе
-	newDB, err := sql.Open("postgres", newDSN)
+	newDB, err := server.GetDb(newDSN)
+
 	if err != nil {
 		return "", fmt.Errorf("ошибка подключения к новой базе данных: %w", err)
 	}
-	defer func(newDB *sql.DB) {
+	/*defer func(newDB *sql.DB) {
 		err := newDB.Close()
 		if err != nil {
 			log.Fatal("Некорректное закрытие базы данных")
 		}
-	}(newDB)
+	}(newDB)*/
 
 	// Миграция для таблицы users
 	migratePath := os.Getenv("MIGRATION_COMPANYDB_PATH")
@@ -228,26 +243,30 @@ func dropClientDatabase(dbName string) error {
 	return nil
 }*/
 
-func registerCompany(req *pb.RegisterCompanyRequest) (nameDB string, err error, status int32) {
+func registerCompany(server *DbServiceServer, req *pb.RegisterCompanyRequest) (nameDB string, err error, status int32) {
 	authDBName := os.Getenv("DB_AUTH_NAME")
-	dbName, err := createClientDatabase()
+	dbName, err := createClientDatabase(server)
 	if err != nil {
 		return "", err, http.StatusInternalServerError
 	}
 
 	dsn := dsnString(authDBName)
-	dbConn, err := sql.Open("postgres", dsn)
+	dbConn, err := server.GetDb(dsn)
 	if err != nil {
 		return "", err, http.StatusInternalServerError
 	}
-	defer dbConn.Close()
+
+	// Логируем состояние соединения
+	if dbConn == nil {
+		log.Println("Ошибка: соединение с базой данных авторизации не инициализировано")
+		return "", fmt.Errorf("соединение с базой данных авторизации не инициализировано"), http.StatusInternalServerError
+	}
 
 	tx, err := dbConn.Begin()
 	if err != nil {
 		return "", fmt.Errorf("не удалось начать транзакцию: %v", err), http.StatusInternalServerError
 	}
 
-	// Откат транзакции tx в случае ошибки
 	defer func() {
 		if err != nil {
 			_ = tx.Rollback()
@@ -272,7 +291,7 @@ func registerCompany(req *pb.RegisterCompanyRequest) (nameDB string, err error, 
 			return "", fmt.Errorf("ошибка при проверке существования компании: %v", err), http.StatusUnprocessableEntity
 		}
 	} else {
-		return "", fmt.Errorf("компания с таким именем и адресом уже существует: " + req.NameCompany), http.StatusConflict
+		return "", fmt.Errorf("компания с таким именем и адресом уже существует: %s", req.NameCompany), http.StatusConflict
 	}
 
 	var authUserId int
@@ -291,18 +310,18 @@ func registerCompany(req *pb.RegisterCompanyRequest) (nameDB string, err error, 
 
 	// Работа с базой данных компании
 	dsnC := dsnString(dbName)
-	dbConnCompany, err := sql.Open("postgres", dsnC)
-	if err != nil {
-		return "", err, http.StatusLocked
+	dbConnCompany, err := server.GetDb(dsnC)
+
+	if dbConnCompany == nil {
+		log.Println("Ошибка: соединение с базой данных компании не инициализировано")
+		return "", fmt.Errorf("соединение с базой данных компании не инициализировано"), http.StatusInternalServerError
 	}
-	defer dbConnCompany.Close()
 
 	txc, err := dbConnCompany.Begin()
 	if err != nil {
 		return "", fmt.Errorf("не удалось начать транзакцию для компании: %v", err), http.StatusInternalServerError
 	}
 
-	// Откат транзакции txc в случае ошибки
 	defer func() {
 		if err != nil {
 			_ = txc.Rollback()
@@ -372,19 +391,20 @@ func rollbackAuthDB(dbConn *sql.DB, companyId, authUserId int) {
 	}
 }
 
-func checkUser(req *pb.LoginDBRequest) (dbName string, err error) {
+func checkUser(server *DbServiceServer, req *pb.LoginDBRequest) (dbName string, err error) {
 
 	dsn := dsnString(os.Getenv("DB_AUTH_NAME"))
-	db, err := sql.Open("postgres", dsn)
+	db, err := server.GetDb(dsn)
+
 	if err != nil {
 		log.Printf("Ошибка подключения базы данных: %s", err)
 		return "", err
 	}
-	defer func() {
+	/*defer func() {
 		if err := db.Close(); err != nil {
 			log.Printf("Ошибка при закрытии текущего соединения: %v", err)
 		}
-	}()
+	}()*/
 
 	query := `
         SELECT companyId
@@ -507,15 +527,11 @@ func getAllUsersHandler(w http.ResponseWriter, r *http.Request) {
 	log.Fatal(http.ListenAndServe(":8080", r))
 }*/
 
-type DbServiceServer struct {
-	pb.UnimplementedDbServiceServer
-}
-
 func (s *DbServiceServer) RegisterCompany(_ context.Context, req *pb.RegisterCompanyRequest) (*pb.RegisterCompanyResponse, error) {
 
 	log.Printf("Получен запрос на регистрацию организации: %v", req.NameCompany)
 
-	dbName, err, status := registerCompany(req)
+	dbName, err, status := registerCompany(s, req)
 	if err != nil {
 		response := &pb.RegisterCompanyResponse{
 			Message:  err.Error(),
@@ -537,7 +553,7 @@ func (s *DbServiceServer) RegisterCompany(_ context.Context, req *pb.RegisterCom
 
 func (s *DbServiceServer) LoginDB(_ context.Context, req *pb.LoginDBRequest) (*pb.LoginDBResponse, error) {
 
-	dbName, err := checkUser(req)
+	dbName, err := checkUser(s, req)
 
 	if err != nil {
 		response := &pb.LoginDBResponse{
@@ -568,14 +584,72 @@ func (s *DbServiceServer) LoginDB(_ context.Context, req *pb.LoginDBRequest) (*p
 	return response, nil
 }
 
+func (s *DbServiceServer) SaveMessage(ctx context.Context, req *pb.SaveMessageRequest) (*pb.SaveMessageResponse, error) {
+	dsn := dsnString(os.Getenv(req.DbName))
+
+	// Получаем соединение с базой данных
+	db, err := s.GetDb(dsn)
+	if err != nil {
+		log.Printf("Ошибка подключения к базе данных: %s", err)
+		return &pb.SaveMessageResponse{
+			Response: fmt.Sprintf("Ошибка подключения к базе данных: %s.", err),
+			Status:   http.StatusInternalServerError,
+		}, err
+	}
+
+	// SQL-запрос для сохранения сообщения
+	query := `
+        INSERT INTO messages (chat_id, user_id, message, created_at)
+        VALUES ($1, $2, $3, to_timestamp($4)) RETURNING id;
+    `
+
+	// Переменная для ID сохраненного сообщения
+	var messageID int
+
+	// Выполняем запрос
+	err = db.QueryRowContext(ctx, query, req.ChatId, req.UserId, req.Message, req.CreatedAt).Scan(&messageID)
+	if err != nil {
+		log.Printf("Ошибка сохранения сообщения в базу данных: %s", err)
+		return &pb.SaveMessageResponse{
+			Response: fmt.Sprintf("Ошибка сохранения сообщения в базу данных: %s.", err),
+			Status:   http.StatusInternalServerError,
+		}, err
+	}
+
+	// Возвращаем успешный ответ
+	return &pb.SaveMessageResponse{
+		Response: fmt.Sprintf("Сообщение успешно сохранено с ID: %d", messageID),
+		Status:   http.StatusOK,
+	}, nil
+}
+
+func (s *DbServiceServer) CloseAllDatabases() error {
+	for name, db := range s.dbs {
+		if err := db.Close(); err != nil {
+			return fmt.Errorf("error closing database %s: %v", name, err)
+		}
+	}
+	return nil
+}
+
 func main() {
 
+	// Инициализация пула сервера
+	serverPoll := NewDbServiceServer()
+
 	var err error
-	err = initDB()
+	err = initDB(serverPoll)
 
 	if err != nil {
 		log.Fatal("Error loading .env file")
 	}
+
+	// Откладываем закрытие всех баз данных
+	defer func() {
+		if err := serverPoll.CloseAllDatabases(); err != nil {
+			log.Fatalf("Failed to close databases: %v", err)
+		}
+	}()
 
 	/*r := mux.NewRouter()
 
@@ -623,8 +697,8 @@ func main() {
 	// Включаем отражение
 	reflection.Register(grpcServer)
 
-	// Регистрируем наш AuthServiceServer
-	pb.RegisterDbServiceServer(grpcServer, &DbServiceServer{})
+	// Регистрируем наш AuthServiceServer с привязкой к общему пулу соединения
+	pb.RegisterDbServiceServer(grpcServer, serverPoll)
 
 	log.Printf("gRPC сервер запущен на %s с TLS", ":8081")
 
