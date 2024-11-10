@@ -36,7 +36,9 @@ RUN cd /tmp \
 # Переместите файл модуля из /tmp в /etc/nginx/modules с добавлением суффикса .so
 RUN mv /tmp/nginx-${NGINX_VERSION}/objs/ngx_http_auth_jwt_module.so /etc/nginx/modules/ngx_http_auth_jwt_module.so
 
+# Копируем ключ в сборку для проверки ключа авторизации.
 COPY opensslkeys/public_key.pem /etc/nginx/opensslkeys/public_key.pem
+
 # Копируем сертификаты в контейнер
 COPY sslkeys/server.pem /etc/nginx/certs/server.pem
 COPY sslkeys/server.key /etc/nginx/certs/server.key
@@ -48,5 +50,5 @@ COPY nginx.conf /etc/nginx/nginx.conf
 EXPOSE 80
 EXPOSE 443
 
-# Укажите команду для запуска NGINX
+# Команда для запуска NGINX
 CMD ["nginx", "-g", "daemon off;"]
