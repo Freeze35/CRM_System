@@ -12,7 +12,6 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"sync"
 	"testAuth/migrations"
 	pb "testAuth/proto/dbservice" // Импортируйте сгенерированный пакет из протобуферов
 	"testAuth/utils"
@@ -296,82 +295,138 @@ func createClientDatabase(server *DbServiceServer) (nameDB string, err error) {
 // 11. Возвращает имя базы данных для компании и nil, если все операции выполнены успешно.
 // registerCompany регистрирует новую компанию и создает пользователя в системе авторизации.
 func registerCompany(server *DbServiceServer, req *pb.RegisterCompanyRequest) (nameDB string, err error, status int32) {
+	// Получаем имя базы данных авторизации из переменных окружения.
+	authDBName := os.Getenv("DB_AUTH_NAME")
 
-	var wg sync.WaitGroup
-	/*ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()*/
-
-	// Каналы для передачи ошибок и результата выполнения.
-	resultChan := make(chan string, 1)
-	errorChan := make(chan error, 1)
-
-	// Создание базы данных клиента (компании).
-	wg.Add(1)
-	go func() {
-
-		defer wg.Done()
-		// Получаем имя базы данных.
-		dbName, err := createClientDatabase(server)
-		if err != nil {
-			errorChan <- err
-			return
-		}
-		resultChan <- dbName
-	}()
-
-	// Завершение работы по завершению всех горутин.
-	go func() {
-
-		wg.Wait()
-		close(resultChan)
-		close(errorChan)
-	}()
-
-	// Получаем имя базы данных из результата асинхронной операции.
-	select {
-	/*case <-ctx.Done():
-	return "", fmt.Errorf("операция прервана: %v", ctx.Err()), http.StatusRequestTimeout*/
-	case err := <-errorChan:
-		return "", err, http.StatusInternalServerError
-	case dbName := <-resultChan:
-		nameDB = dbName
+	// Создаем базу данных для компании.
+	dbName, err := createClientDatabase(server)
+	if err != nil {
+		return "", err, http.StatusInternalServerError // Возвращаем ошибку, если создание базы данных не удалось.
 	}
 
-	// Асинхронно выполняем транзакцию для базы данных авторизации.
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	// Формируем строку подключения к базе данных авторизации.
+	dsn := dsnString(authDBName)
 
-		authDBName := os.Getenv("DB_AUTH_NAME")
-		dsn := dsnString(authDBName)
-		dbConn, err := server.GetDb(dsn)
-		if err != nil {
-			errorChan <- fmt.Errorf("ошибка подключения к базе авторизации: %v", err)
-			return
-		}
+	// Получаем соединение с базой данных авторизации.
+	dbConn, err := server.GetDb(dsn)
+	if err != nil {
+		return "", err, http.StatusInternalServerError // Возвращаем ошибку, если соединение не удалось.
+	}
 
-		tx, err := dbConn.Begin()
-		if err != nil {
-			errorChan <- fmt.Errorf("не удалось начать транзакцию: %v", err)
-			return
-		}
+	// Логируем состояние соединения с базой данных авторизации.
+	if dbConn == nil {
+		log.Println("Ошибка: соединение с базой данных авторизации не инициализировано")
+		return "", fmt.Errorf("соединение с базой данных авторизации не инициализировано"), http.StatusInternalServerError
+	}
 
-		// Здесь выполняются действия с транзакцией, например, добавление компании и пользователя
-		// Пример кода, если транзакция успешна:
-		err = tx.Commit()
+	// Начинаем транзакцию для базы данных авторизации.
+	tx, err := dbConn.Begin()
+	if err != nil {
+		return "", fmt.Errorf("не удалось начать транзакцию: %v", err), http.StatusInternalServerError // Возвращаем ошибку, если не удалось начать транзакцию.
+	}
+
+	defer func() { // Отложенная функция для отката транзакции в случае ошибки.
 		if err != nil {
-			errorChan <- fmt.Errorf("не удалось зафиксировать транзакцию auth DB: %v", err)
-			return
+			_ = tx.Rollback()                                                 // Откатываем транзакцию.
+			log.Printf("Транзакция откатана (auth DB) из-за ошибки: %v", err) // Логируем откат.
 		}
 	}()
 
-	// Проверяем ошибки и завершаем выполнение.
-	select {
-	case err := <-errorChan:
-		return "", err, http.StatusInternalServerError
-	default:
-		return nameDB, nil, http.StatusOK
+	var companyId int // Переменная для хранения ID компании.
+
+	// Проверяем, существует ли уже компания с указанным именем и адресом.
+	query := "SELECT id FROM companies WHERE name = $1 AND address = $2"
+	err = tx.QueryRow(query, req.NameCompany, req.Address).Scan(&companyId)
+	if err != nil {
+		if err == sql.ErrNoRows { // Если компания не найдена, продолжаем вставку.
+			// Вставляем новую компанию и получаем её ID.
+			err = tx.QueryRow(
+				"INSERT INTO companies (name, address, dbname) VALUES ($1, $2, $3) RETURNING id",
+				req.NameCompany, req.Address, dbName,
+			).Scan(&companyId)
+			if err != nil {
+				return "", fmt.Errorf("не удалось создать компанию: %v", err), http.StatusInternalServerError // Возвращаем ошибку, если вставка не удалась.
+			}
+		} else {
+			return "", fmt.Errorf("ошибка при проверке существования компании: %v", err), http.StatusUnprocessableEntity // Возвращаем ошибку, если произошла другая ошибка.
+		}
+	} else {
+		return "", fmt.Errorf("компания с таким именем и адресом уже существует: %s", req.NameCompany), http.StatusConflict // Возвращаем ошибку, если компания уже существует.
 	}
+
+	var authUserId int // Переменная для хранения ID пользователя.
+
+	// Вставляем нового пользователя в таблицу authusers и получаем его ID.
+	err = tx.QueryRow(
+		"INSERT INTO authusers (email, phone, password, companyId) VALUES ($1, $2, $3, $4) RETURNING id",
+		req.Email, req.Phone, req.Password, companyId,
+	).Scan(&authUserId)
+	if err != nil {
+		return "", fmt.Errorf("не удалось создать пользователя: %v", err), http.StatusInternalServerError // Возвращаем ошибку, если вставка не удалась.
+	}
+
+	err = tx.Commit() // Фиксируем транзакцию для базы данных авторизации.
+	if err != nil {
+		return "", fmt.Errorf("не удалось зафиксировать транзакцию auth DB: %v", err), http.StatusInternalServerError // Возвращаем ошибку, если фиксация не удалась.
+	}
+
+	// Работа с базой данных компании.
+	dsnC := dsnString(dbName)                // Формируем строку подключения к базе данных компании.
+	dbConnCompany, err := server.GetDb(dsnC) // Получаем соединение с базой данных компании.
+
+	if dbConnCompany == nil {
+		log.Println("Ошибка: соединение с базой данных компании не инициализировано")
+		return "", fmt.Errorf("соединение с базой данных компании не инициализировано"), http.StatusInternalServerError // Возвращаем ошибку, если соединение не удалось.
+	}
+
+	txc, err := dbConnCompany.Begin() // Начинаем транзакцию для базы данных компании.
+	if err != nil {
+		return "", fmt.Errorf("не удалось начать транзакцию для компании: %v", err), http.StatusInternalServerError // Возвращаем ошибку, если не удалось начать транзакцию.
+	}
+
+	defer func() { // Отложенная функция для отката транзакции в случае ошибки.
+		if err != nil {
+			_ = txc.Rollback()                                                   // Откатываем транзакцию.
+			log.Printf("Транзакция откатана (company DB) из-за ошибки: %v", err) // Логируем откат.
+			// Откат действий в первой базе данных.
+			rollbackAuthDB(dbConn, companyId, authUserId)
+		}
+	}()
+
+	role := os.Getenv("FIRST_ROLE") // Получаем роль для нового пользователя.
+
+	var roleID int // Переменная для хранения ID роли.
+
+	// Вставляем новую роль в таблицу rights и получаем её ID.
+	err = txc.QueryRow("INSERT INTO rights (roles) VALUES ($1) RETURNING id", role).Scan(&roleID)
+	if err != nil {
+		return "", fmt.Errorf("не удалось добавить название прав: %v", err), http.StatusNotImplemented // Возвращаем ошибку, если вставка не удалась.
+	}
+
+	// Вставляем нового пользователя в таблицу users.
+	_, err = txc.Exec(
+		"INSERT INTO users (roles, companyId, rightsId, authId) VALUES ($1, $2, $3, $4)",
+		role, companyId, roleID, authUserId,
+	)
+	if err != nil {
+		return "", fmt.Errorf("не удалось добавить пользователя: %v", err), http.StatusNotImplemented // Возвращаем ошибку, если вставка не удалась.
+	}
+
+	// Вставляем доступные действия для новой роли.
+	_, err = txc.Exec(
+		"INSERT INTO availableactions (roleId, createTasks, createChats, addWorkers) VALUES ($1, $2, $3, $4)",
+		roleID, true, true, true,
+	)
+	if err != nil {
+		return "", fmt.Errorf("не удалось добавить доступные действия для роли: %v", err), http.StatusNotImplemented // Возвращаем ошибку, если вставка не удалась.
+	}
+
+	err = txc.Commit() // Фиксируем транзакцию для базы данных компании.
+	if err != nil {
+		return "", fmt.Errorf("не удалось зафиксировать транзакцию компании: %v", err), http.StatusNotImplemented // Возвращаем ошибку, если фиксация не удалась.
+	}
+
+	return dbName, nil, http.StatusOK // Возвращаем имя базы данных, nil и код состояния 200 OK, если все операции выполнены успешно.
 }
 
 // rollbackAuthDB откатывает изменения в базе данных авторизации, удаляя пользователя и компанию.
