@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/reflection"
 	"io/ioutil"
 	"log"
@@ -178,7 +179,7 @@ func callRegisterCompany(client dbservice.DbServiceClient, req *auth.RegisterAut
 	log.Printf("Ответ сервера: Message: %s, Database: %s, Status: %d", res.GetMessage(), res.GetDatabase(), res.GetStatus())*/
 
 	if resDB.Status == http.StatusOK {
-		// Пример успешного ответа с сгенерированным токеном
+		// Пример успешного ответа с генерированным токеном
 		token, err := utils.JwtGenerate()
 		if err != nil {
 			fmt.Sprintf("Ошибка: %s", err)
@@ -342,8 +343,17 @@ func main() {
 	if err != nil {
 		log.Fatalf("cannot load TLS credentials: %s", err)
 	}
+	opts = []grpc.ServerOption{
+		grpc.Creds(tlsCredentials), // Добавление TLS опций
+		grpc.KeepaliveParams(keepalive.ServerParameters{
+			MaxConnectionIdle:     5 * time.Minute,
+			MaxConnectionAge:      15 * time.Minute,
+			MaxConnectionAgeGrace: 5 * time.Minute,
+			Time:                  5 * time.Second, // Таймаут на соединение
+		}),
+	}
 
-	opts = append(opts, grpc.Creds(tlsCredentials))
+	/*opts = append(opts, grpc.Creds(tlsCredentials))*/
 
 	grpcServer := grpc.NewServer(opts...)
 
