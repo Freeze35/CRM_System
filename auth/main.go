@@ -147,9 +147,10 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
 	WriteJSON(w, http.StatusOK, response)
 }*/
 
-func callRegisterCompany(client dbservice.DbServiceClient, req *auth.RegisterAuthRequest) (response *auth.RegisterAuthResponse, err error) {
+func callRegisterCompany(client dbservice.DbServiceClient, req *auth.RegisterAuthRequest, ctx context.Context) (response *auth.RegisterAuthResponse, err error) {
 	// Создаем контекст с тайм-аутом для запроса
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second*2)
+	// Вылити ошибка в случае привышения порога ожидания с сервера в 10 секунд
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
 	defer cancel()
 
 	// Формируем запрос на регистрацию компании
@@ -221,7 +222,7 @@ func (s *AuthServiceServer) Register(ctx context.Context, req *auth.RegisterAuth
 
 		return nil, err
 	}
-	response, err := callRegisterCompany(client, req)
+	response, err := callRegisterCompany(client, req, ctx)
 	if err != nil {
 		return nil, err
 	}
