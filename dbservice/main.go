@@ -174,7 +174,7 @@ func initDB(server *DbServiceServer) error {
 // 7. Логирует успешное создание базы данных и возвращает nil.
 func createInsideDB(dbName string) error {
 	if dbName == "" {
-		return fmt.Errorf("имя базы данных не может быть пустым")
+		return fmt.Errorf("Имя базы данных не может быть пустым")
 	}
 
 	dsn := dsnString(os.Getenv("SERVER_NAME"))
@@ -182,7 +182,7 @@ func createInsideDB(dbName string) error {
 	// Открываем соединение с базой данных postgres одиночное открытие базы данных
 	db, err := sql.Open("postgres", dsn)
 	if err != nil {
-		return fmt.Errorf("ошибка подключения к базе данных: %w", err)
+		return fmt.Errorf("Ошибка подключения к базе данных: %w", err)
 	}
 	/*defer func() {
 		if err := db.Close(); err != nil {
@@ -195,7 +195,7 @@ func createInsideDB(dbName string) error {
 	query := fmt.Sprintf(`SELECT EXISTS(SELECT 1 FROM pg_database WHERE datname='%s')`, dbName)
 	err = db.QueryRow(query).Scan(&exists)
 	if err != nil {
-		return fmt.Errorf("ошибка проверки существования базы данных: %w", err)
+		return fmt.Errorf("Ошибка проверки существования базы данных: %w", err)
 	}
 
 	// Если база данных уже существует, возвращаем сообщение об этом
@@ -207,7 +207,7 @@ func createInsideDB(dbName string) error {
 	// Выполняем запрос на создание базы данных
 	_, err = db.Exec(fmt.Sprintf(`CREATE DATABASE "%s"`, dbName))
 	if err != nil {
-		return fmt.Errorf("ошибка создания базы данных %s: %w", dbName, err)
+		return fmt.Errorf("Ошибка создания базы данных %s: %w", dbName, err)
 	}
 
 	log.Printf("База данных %s успешно создана", dbName)
@@ -239,7 +239,7 @@ func createClientDatabase(server *DbServiceServer) (nameDB string, err error) {
 	// Функция проверки и создания базы данных
 	err = createInsideDB(randomName)
 	if err != nil {
-		return "", fmt.Errorf("ошибка при создании базы данных: %w", err)
+		return "", fmt.Errorf("Ошибка при создании базы данных: %w", err)
 	}
 
 	// Теперь подключаемся к только что созданной базе данных
@@ -247,7 +247,7 @@ func createClientDatabase(server *DbServiceServer) (nameDB string, err error) {
 	newDB, err := server.GetDb(newDSN)
 
 	if err != nil {
-		return "", fmt.Errorf("ошибка подключения к новой базе данных: %w", err)
+		return "", fmt.Errorf("Ошибка подключения к новой базе данных: %w", err)
 	}
 	/*defer func(newDB *sql.DB) {
 		err := newDB.Close()
@@ -260,7 +260,7 @@ func createClientDatabase(server *DbServiceServer) (nameDB string, err error) {
 	migratePath := os.Getenv("MIGRATION_COMPANYDB_PATH")
 	err = migrations.Migration(newDB, migratePath, randomName)
 	if err != nil {
-		return "", fmt.Errorf("ошибка при миграции базы данных: %w", err)
+		return "", fmt.Errorf("Ошибка при миграции базы данных: %w", err)
 	}
 
 	return randomName, nil
@@ -316,13 +316,13 @@ func registerCompany(server *DbServiceServer, req *pb.RegisterCompanyRequest) (n
 	// Логируем состояние соединения с базой данных авторизации.
 	if dbConn == nil {
 		log.Println("Ошибка: соединение с базой данных авторизации не инициализировано")
-		return "", fmt.Errorf("соединение с базой данных авторизации не инициализировано"), http.StatusInternalServerError
+		return "", fmt.Errorf("Соединение с базой данных авторизации не инициализировано"), http.StatusInternalServerError
 	}
 
 	// Начинаем транзакцию для базы данных авторизации.
 	tx, err := dbConn.Begin()
 	if err != nil {
-		return "", fmt.Errorf("не удалось начать транзакцию: %v", err), http.StatusInternalServerError // Возвращаем ошибку, если не удалось начать транзакцию.
+		return "", fmt.Errorf("Не удалось начать транзакцию: %v", err), http.StatusInternalServerError // Возвращаем ошибку, если не удалось начать транзакцию.
 	}
 
 	defer func() { // Отложенная функция для отката транзакции в случае ошибки.
@@ -345,13 +345,13 @@ func registerCompany(server *DbServiceServer, req *pb.RegisterCompanyRequest) (n
 				req.NameCompany, req.Address, dbName,
 			).Scan(&companyId)
 			if err != nil {
-				return "", fmt.Errorf("не удалось создать компанию: %v", err), http.StatusInternalServerError // Возвращаем ошибку, если вставка не удалась.
+				return "", fmt.Errorf("Не удалось создать компанию: %v", err), http.StatusInternalServerError // Возвращаем ошибку, если вставка не удалась.
 			}
 		} else {
-			return "", fmt.Errorf("ошибка при проверке существования компании: %v", err), http.StatusUnprocessableEntity // Возвращаем ошибку, если произошла другая ошибка.
+			return "", fmt.Errorf("Ошибка при проверке существования компании: %v", err), http.StatusUnprocessableEntity // Возвращаем ошибку, если произошла другая ошибка.
 		}
 	} else {
-		return "", fmt.Errorf("компания с таким именем и адресом уже существует: %s", req.NameCompany), http.StatusConflict // Возвращаем ошибку, если компания уже существует.
+		return "", fmt.Errorf("Компания с таким именем и адресом уже существует: %s", req.NameCompany), http.StatusConflict // Возвращаем ошибку, если компания уже существует.
 	}
 
 	var authUserId int // Переменная для хранения ID пользователя.
@@ -362,12 +362,12 @@ func registerCompany(server *DbServiceServer, req *pb.RegisterCompanyRequest) (n
 		req.Email, req.Phone, req.Password, companyId,
 	).Scan(&authUserId)
 	if err != nil {
-		return "", fmt.Errorf("не удалось создать пользователя: %v", err), http.StatusInternalServerError // Возвращаем ошибку, если вставка не удалась.
+		return "", fmt.Errorf("Не удалось создать пользователя: %v", err), http.StatusInternalServerError // Возвращаем ошибку, если вставка не удалась.
 	}
 
 	err = tx.Commit() // Фиксируем транзакцию для базы данных авторизации.
 	if err != nil {
-		return "", fmt.Errorf("не удалось зафиксировать транзакцию auth DB: %v", err), http.StatusInternalServerError // Возвращаем ошибку, если фиксация не удалась.
+		return "", fmt.Errorf("Не удалось зафиксировать транзакцию auth DB: %v", err), http.StatusInternalServerError // Возвращаем ошибку, если фиксация не удалась.
 	}
 
 	// Работа с базой данных компании.
@@ -376,12 +376,12 @@ func registerCompany(server *DbServiceServer, req *pb.RegisterCompanyRequest) (n
 
 	if dbConnCompany == nil {
 		log.Println("Ошибка: соединение с базой данных компании не инициализировано")
-		return "", fmt.Errorf("соединение с базой данных компании не инициализировано"), http.StatusInternalServerError // Возвращаем ошибку, если соединение не удалось.
+		return "", fmt.Errorf("Соединение с базой данных компании не инициализировано"), http.StatusInternalServerError // Возвращаем ошибку, если соединение не удалось.
 	}
 
 	txc, err := dbConnCompany.Begin() // Начинаем транзакцию для базы данных компании.
 	if err != nil {
-		return "", fmt.Errorf("не удалось начать транзакцию для компании: %v", err), http.StatusInternalServerError // Возвращаем ошибку, если не удалось начать транзакцию.
+		return "", fmt.Errorf("Не удалось начать транзакцию для компании: %v", err), http.StatusInternalServerError // Возвращаем ошибку, если не удалось начать транзакцию.
 	}
 
 	defer func() { // Отложенная функция для отката транзакции в случае ошибки.
@@ -400,7 +400,7 @@ func registerCompany(server *DbServiceServer, req *pb.RegisterCompanyRequest) (n
 	// Вставляем новую роль в таблицу rights и получаем её ID.
 	err = txc.QueryRow("INSERT INTO rights (roles) VALUES ($1) RETURNING id", role).Scan(&roleID)
 	if err != nil {
-		return "", fmt.Errorf("не удалось добавить название прав: %v", err), http.StatusNotImplemented // Возвращаем ошибку, если вставка не удалась.
+		return "", fmt.Errorf("Не удалось добавить название прав: %v", err), http.StatusNotImplemented // Возвращаем ошибку, если вставка не удалась.
 	}
 
 	// Вставляем нового пользователя в таблицу users.
@@ -409,7 +409,7 @@ func registerCompany(server *DbServiceServer, req *pb.RegisterCompanyRequest) (n
 		role, companyId, roleID, authUserId,
 	)
 	if err != nil {
-		return "", fmt.Errorf("не удалось добавить пользователя: %v", err), http.StatusNotImplemented // Возвращаем ошибку, если вставка не удалась.
+		return "", fmt.Errorf("Не удалось добавить пользователя: %v", err), http.StatusNotImplemented // Возвращаем ошибку, если вставка не удалась.
 	}
 
 	// Вставляем доступные действия для новой роли.
@@ -418,12 +418,12 @@ func registerCompany(server *DbServiceServer, req *pb.RegisterCompanyRequest) (n
 		roleID, true, true, true,
 	)
 	if err != nil {
-		return "", fmt.Errorf("не удалось добавить доступные действия для роли: %v", err), http.StatusNotImplemented // Возвращаем ошибку, если вставка не удалась.
+		return "", fmt.Errorf("Не удалось добавить доступные действия для роли: %v", err), http.StatusNotImplemented // Возвращаем ошибку, если вставка не удалась.
 	}
 
 	err = txc.Commit() // Фиксируем транзакцию для базы данных компании.
 	if err != nil {
-		return "", fmt.Errorf("не удалось зафиксировать транзакцию компании: %v", err), http.StatusNotImplemented // Возвращаем ошибку, если фиксация не удалась.
+		return "", fmt.Errorf("Не удалось зафиксировать транзакцию компании: %v", err), http.StatusNotImplemented // Возвращаем ошибку, если фиксация не удалась.
 	}
 
 	return dbName, nil, http.StatusOK // Возвращаем имя базы данных, nil и код состояния 200 OK, если все операции выполнены успешно.
@@ -489,7 +489,7 @@ func checkUser(server *DbServiceServer, req *pb.LoginDBRequest) (dbName string, 
 
 	if err != nil {
 		if err == sql.ErrNoRows {
-			return "", fmt.Errorf("пользователь не найден") // Пользователь не найден, возвращаем ошибку.
+			return "", fmt.Errorf("Пользователь не найден") // Пользователь не найден, возвращаем ошибку.
 		}
 		return "", err // Возвращаем ошибку при выполнении запроса.
 	}
@@ -626,7 +626,7 @@ func (s *DbServiceServer) CloseAllDatabases() error {
 		// Закрываем соединение с текущей базой данных.
 		if err := db.Close(); err != nil {
 			// Если произошла ошибка при закрытии, возвращаем ошибку с именем базы данных и текстом ошибки.
-			return fmt.Errorf("error closing database %s: %v", name, err)
+			return fmt.Errorf("Ошибка закрытия базы данных %s: %v", name, err)
 		}
 	}
 	// Если все базы данных успешно закрыты, возвращаем nil.

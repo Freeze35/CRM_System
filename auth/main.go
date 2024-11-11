@@ -148,8 +148,9 @@ func loginHandler(w http.ResponseWriter, r *http.Request) {
 }*/
 
 func callRegisterCompany(client dbservice.DbServiceClient, req *auth.RegisterAuthRequest, ctx context.Context) (response *auth.RegisterAuthResponse, err error) {
+
 	// Создаем контекст с тайм-аутом для запроса
-	// Вылити ошибка в случае привышения порога ожидания с сервера в 10 секунд
+	// В случае превышения порога ожидания с сервера в 10 секунд будет ошибка контекста.
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
 	defer cancel()
 
