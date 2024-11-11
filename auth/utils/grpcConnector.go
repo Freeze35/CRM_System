@@ -2,9 +2,9 @@ package utils
 
 import (
 	"context"
+	"crmSystem/proto/dbservice"
 	"google.golang.org/grpc"
 	"log"
-	"testAuth/proto/dbservice"
 	"time"
 )
 

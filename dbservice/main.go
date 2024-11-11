@@ -2,6 +2,9 @@ package main
 
 import (
 	"context"
+	"crmSystem/migrations"
+	pb "crmSystem/proto/dbservice" // Импортируйте сгенерированный пакет из протобуферов
+	"crmSystem/utils"
 	"database/sql"
 	"fmt"
 	"github.com/joho/godotenv"
@@ -12,9 +15,6 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"testAuth/migrations"
-	pb "testAuth/proto/dbservice" // Импортируйте сгенерированный пакет из протобуферов
-	"testAuth/utils"
 	"time"
 )
 

@@ -2,6 +2,9 @@ package main
 
 import (
 	"context"
+	auth "crmSystem/proto/auth"
+	"crmSystem/proto/dbservice"
+	"crmSystem/utils"
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
@@ -14,9 +17,6 @@ import (
 	"net"
 	"net/http"
 	"os"
-	auth "testAuth/proto/auth"
-	dbservice "testAuth/proto/dbservice"
-	"testAuth/utils"
 	"time"
 )
 
