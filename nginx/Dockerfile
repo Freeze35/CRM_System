@@ -37,15 +37,16 @@ RUN cd /tmp \
 RUN mv /tmp/nginx-${NGINX_VERSION}/objs/ngx_http_auth_jwt_module.so /etc/nginx/modules/ngx_http_auth_jwt_module.so
 
 # Копируем ключ в сборку для проверки ключа авторизации.
-COPY opensslkeys/public_key.pem /etc/nginx/opensslkeys/public_key.pem
+COPY ./nginx/opensslkeys/public_key.pem /etc/nginx/opensslkeys/public_key.pem
 
 # Копируем сертификаты в контейнер
-COPY sslkeys/server.pem /etc/nginx/certs/server.pem
-COPY sslkeys/server.key /etc/nginx/certs/server.key
-COPY sslkeys/ca.crt /etc/nginx/certs/ca.crt
+COPY ./nginx/sslkeys/server.crt /etc/nginx/certs/server.crt
+COPY ./nginx/sslkeys/server.key /etc/nginx/certs/server.key
+COPY ./rootca/ca.crt /etc/nginx/certs/ca.crt
+
 
 # Копируйте конфигурационный файл NGINX
-COPY nginx.conf /etc/nginx/nginx.conf
+COPY ./nginx/nginx.conf /etc/nginx/nginx.conf
 
 EXPOSE 80
 EXPOSE 443

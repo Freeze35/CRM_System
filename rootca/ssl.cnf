@@ -1,0 +1,28 @@
+[ req ]
+default_bits        = 2048  # Указывает количество бит в ключе
+distinguished_name  = req_distinguished_name  # Ссылается на секцию, где описаны обязательные параметры для сертификата
+x509_extensions     = v3_ca  # Указывает расширения для сертификата (например, для CA)
+prompt              = no  # Устанавливает автоматический режим без запроса на ввод данных
+
+[ req_distinguished_name ]
+C = US  # Страна
+ST = State  # Штат
+L = Locality  # Локальность (город или регион)
+O = YourOrganization  # Организация
+OU = YourOrganizationalUnit  # Подразделение (отдел)
+CN = YourRootCA  # Имя корневого сертификата (Common Name)
+emailAddress = email@example.com  # Адрес электронной почты
+
+[ v3_ca ]
+basicConstraints = critical,CA:TRUE  # Указывает, что это сертификат удостоверяющего центра (CA)
+keyUsage = digitalSignature, cRLSign, keyCertSign  # Указывает, что этот сертификат может использоваться для цифровых подписей, подписания списка отозванных сертификатов и подписания других сертификатов
+subjectKeyIdentifier = hash  # Генерирует уникальный идентификатор для публичного ключа
+authorityKeyIdentifier = keyid:always,issuer:always  # Указывает на идентификатор ключа и информацию об издателе сертификата в цепочке
+
+# Дополнительные имена (SAN) — альтернативные имена для сертификата (например, DNS имена или IP адреса)
+subjectAltName = @alt_names
+
+[ alt_names ]
+DNS.1 = nginx  # Первое имя для сертификата
+DNS.2 = dbservice  # Второе имя для сертификата
+DNS.3 = auth  # Третье имя для сертификата

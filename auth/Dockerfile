@@ -5,7 +5,7 @@ FROM golang:1.23 AS builder
 WORKDIR /app
 
 # Копируем файлы в контейнер
-COPY . .
+COPY ./auth/ .
 
 # Устанавливаем зависимости
 RUN go mod download
@@ -17,7 +17,8 @@ RUN GOOS=linux GOARCH=amd64 go build -o auth main.go
 WORKDIR /app
 
 # Копируем .env файл
-COPY .env .env
+COPY ./auth/.env .env
+COPY ./rootca/ca.crt ./rootca/ca.crt
 
 # Указываем порт для приложения
 EXPOSE ${AUTH_SERVICE_PORT}

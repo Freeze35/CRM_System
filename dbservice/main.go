@@ -295,6 +295,7 @@ func createClientDatabase(server *DbServiceServer) (nameDB string, err error) {
 // 11. Возвращает имя базы данных для компании и nil, если все операции выполнены успешно.
 // registerCompany регистрирует новую компанию и создает пользователя в системе авторизации.
 func registerCompany(server *DbServiceServer, req *pb.RegisterCompanyRequest) (nameDB string, err error, status int32) {
+
 	// Получаем имя базы данных авторизации из переменных окружения.
 	authDBName := os.Getenv("DB_AUTH_NAME")
 
@@ -657,8 +658,18 @@ func main() {
 		log.Fatalf("Не удалось запустить сервер: %v", err)
 	}
 
-	// Создаем новый gRPC сервер
-	grpcServer := grpc.NewServer( /*opts...*/ ) // Здесь можно указать опции для сервера
+	/*// Создаем gRPC сервер с TLS
+	var opts []grpc.ServerOption
+	tlsCredentials, err := utils.LoadTLSCredentials()
+	if err != nil {
+		log.Fatalf("cannot load TLS credentials: %s", err)
+	}
+	opts = []grpc.ServerOption{
+		grpc.Creds(tlsCredentials), // Добавление TLS опций
+	}*/
+
+	// Создаем новый gRPC сервер с TLS
+	grpcServer := grpc.NewServer( /*opts...*/ )
 
 	// Включаем отражение для gRPC сервера
 	reflection.Register(grpcServer)

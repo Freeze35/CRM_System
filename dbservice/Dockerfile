@@ -1,35 +1,27 @@
-# Этап сборки
+# Используем базовый образ Go
 FROM golang:1.23 AS builder
 
 # Устанавливаем рабочую директорию в контейнере
 WORKDIR /app
 
 # Копируем файлы в контейнер
-COPY . .
+COPY ./dbservice/ .
 
 # Устанавливаем зависимости
 RUN go mod download
 
-# Собираем статически слинкованный бинарный файл для Linux
-RUN CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -o dbservice main.go
+# Собираем бинарный файл для Linux
+RUN GOOS=linux GOARCH=amd64 go build -o dbservice main.go
 
-# Финальный образ
-FROM alpine:latest
-
-# Устанавливаем рабочую директорию в контейнере
+# Указываем рабочую директорию (необязательно)
 WORKDIR /app
 
-# Копируем бинарный файл из этапа сборки
-COPY --from=builder /app/dbservice /app/dbservice
-
-# Копируем миграции
-COPY --from=builder /app/migrations /app/migrations
-
 # Копируем .env файл
-COPY --from=builder /app/.env /app/.env
+COPY ./dbservice/.env .env
+COPY ./rootca/ca.crt ./rootca/ca.crt
 
 # Указываем порт для приложения
-EXPOSE 8081
+EXPOSE ${DB_SERVICE_PORT}
 
 # Запускаем приложение
-CMD ["/app/dbservice"]
+CMD ["./dbservice"]
