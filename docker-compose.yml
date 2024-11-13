@@ -39,10 +39,6 @@ services:
     ports:
       - "80:80"
       - "443:443"
-    volumes:
-      - ./nginx/httpd.conf:/usr/local/apache2/conf/httpd.conf
-      - ./nginx/ssl/cert.pem:/usr/local/apache2/conf/cert.pem
-      - ./nginx/ssl/key.pem:/usr/local/apache2/conf/key.pem
   redis:
     image: redis:alpine
     container_name: redis_cache

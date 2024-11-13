@@ -10,6 +10,7 @@ import (
 	"github.com/joho/godotenv"
 	_ "github.com/lib/pq"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/reflection"
 	"log"
 	"net"
@@ -657,8 +658,23 @@ func main() {
 		log.Fatalf("Не удалось запустить сервер: %v", err)
 	}
 
+	var opts []grpc.ServerOption
+	tlsCredentials, err := utils.LoadTLSCredentials()
+	if err != nil {
+		log.Fatalf("cannot load TLS credentials: %s", err)
+	}
+	opts = []grpc.ServerOption{
+		grpc.Creds(tlsCredentials), // Добавление TLS опций
+		grpc.KeepaliveParams(keepalive.ServerParameters{
+			MaxConnectionIdle:     5 * time.Minute,
+			MaxConnectionAge:      15 * time.Minute,
+			MaxConnectionAgeGrace: 5 * time.Minute,
+			Time:                  5 * time.Second, // Таймаут на соединение
+		}),
+	}
+
 	// Создаем новый gRPC сервер
-	grpcServer := grpc.NewServer( /*opts...*/ ) // Здесь можно указать опции для сервера
+	grpcServer := grpc.NewServer(opts...) // Здесь можно указать опции для сервера
 
 	// Включаем отражение для gRPC сервера
 	reflection.Register(grpcServer)

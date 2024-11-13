@@ -8,36 +8,33 @@ import (
 	"io/ioutil"
 )
 
-const (
-	serverCertFile   = "sslkeys/server.pem"
-	serverKeyFile    = "sslkeys/server.key"
-	clientCACertFile = "sslkeys/ca.crt"
-)
-
+// LoadTLSCredentials загружает TLS-учетные данные для сервера.
 func LoadTLSCredentials() (credentials.TransportCredentials, error) {
-	// Load certificate of the CA who signed client's certificate
-	pemClientCA, err := ioutil.ReadFile(clientCACertFile)
+	// Загрузка сертификата CA сервера
+	pemServerCA, err := ioutil.ReadFile(clientCACertFile)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("не удалось загрузить сертификат CA сервера: %v", err)
 	}
 
+	// Создание пула сертификатов и добавление сертификата CA
 	certPool := x509.NewCertPool()
-	if !certPool.AppendCertsFromPEM(pemClientCA) {
-		return nil, fmt.Errorf("failed to add client CA's certificate")
+	if !certPool.AppendCertsFromPEM(pemServerCA) {
+		return nil, fmt.Errorf("не удалось добавить сертификат CA сервера в пул")
 	}
 
-	// Load server's certificate and private key
+	// Загрузка сертификата и закрытого ключа сервера
 	serverCert, err := tls.LoadX509KeyPair(serverCertFile, serverKeyFile)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("не удалось загрузить сертификат и ключ сервера: %v", err)
 	}
 
-	// Create the credentials and return it
+	// Настройка TLS-конфигурации
 	config := &tls.Config{
 		Certificates: []tls.Certificate{serverCert},
-		ClientAuth:   tls.RequireAndVerifyClientCert,
-		ClientCAs:    certPool,
+		ClientAuth:   tls.RequireAndVerifyClientCert, // Двусторонняя аутентификация
+		ClientCAs:    certPool,                       // Проверка сертификатов клиентов
 	}
 
+	// Возвращаем TLS-настройки для gRPC
 	return credentials.NewTLS(config), nil
 }

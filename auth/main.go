@@ -5,14 +5,10 @@ import (
 	auth "crmSystem/proto/auth"
 	"crmSystem/proto/dbservice"
 	"crmSystem/utils"
-	"crypto/tls"
-	"crypto/x509"
 	"fmt"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/reflection"
-	"io/ioutil"
 	"log"
 	"net"
 	"net/http"
@@ -220,12 +216,25 @@ func (s *AuthServiceServer) Register(ctx context.Context, req *auth.RegisterAuth
 	defer conn.Close()
 	if err != nil {
 		log.Printf("Не удалось подключиться к серверу: %v", err)
-
-		return nil, err
+		if err != nil {
+			response := &auth.RegisterAuthResponse{
+				Message:  "Не удалось подключиться к серверу : " + err.Error(),
+				Database: "",
+				Token:    "",
+				Status:   http.StatusInternalServerError,
+			}
+			return response, err
+		}
 	}
 	response, err := callRegisterCompany(client, req, ctx)
 	if err != nil {
-		return nil, err
+		response := &auth.RegisterAuthResponse{
+			Message:  "Внутренняя ошибка создания компании : " + err.Error(),
+			Database: "",
+			Token:    "",
+			Status:   http.StatusInternalServerError,
+		}
+		return response, err
 	}
 
 	return response, nil
@@ -285,40 +294,6 @@ func (s *AuthServiceServer) Login(_ context.Context, req *auth.LoginAuthRequest)
 	return response, nil
 }
 
-const (
-	serverCertFile   = "sslkeys/server.pem"
-	serverKeyFile    = "sslkeys/server.key"
-	clientCACertFile = "sslkeys/ca.crt"
-)
-
-func loadTLSCredentials() (credentials.TransportCredentials, error) {
-	// Load certificate of the CA who signed client's certificate
-	pemClientCA, err := ioutil.ReadFile(clientCACertFile)
-	if err != nil {
-		return nil, err
-	}
-
-	certPool := x509.NewCertPool()
-	if !certPool.AppendCertsFromPEM(pemClientCA) {
-		return nil, fmt.Errorf("failed to add client CA's certificate")
-	}
-
-	// Load server's certificate and private key
-	serverCert, err := tls.LoadX509KeyPair(serverCertFile, serverKeyFile)
-	if err != nil {
-		return nil, err
-	}
-
-	// Create the credentials and return it
-	config := &tls.Config{
-		Certificates: []tls.Certificate{serverCert},
-		ClientAuth:   tls.RequireAndVerifyClientCert,
-		ClientCAs:    certPool,
-	}
-
-	return credentials.NewTLS(config), nil
-}
-
 func main() {
 	// Инициализируем TCP соединение для gRPC сервера
 
@@ -341,7 +316,7 @@ func main() {
 	// Создаем gRPC сервер с TLS
 
 	var opts []grpc.ServerOption
-	tlsCredentials, err := loadTLSCredentials()
+	tlsCredentials, err := utils.LoadTLSCredentials()
 	if err != nil {
 		log.Fatalf("cannot load TLS credentials: %s", err)
 	}

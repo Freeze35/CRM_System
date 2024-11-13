@@ -1,0 +1,22 @@
+[ req ]
+default_bits        = 2048
+distinguished_name  = req_distinguished_name
+x509_extensions     = req_ext
+prompt              = no
+
+[ req_distinguished_name ]
+C = RU
+ST = Buratia
+L = Ulan-Ude
+O = NoOrg
+OU = NoOU
+CN = crmsystem.com
+emailAddress = email@example.com
+
+[ req_ext ]
+subjectAltName = @alt_names
+
+[ alt_names ]
+DNS.1 = nginx
+DNS.2 = dbservice
+DNS.3 = auth

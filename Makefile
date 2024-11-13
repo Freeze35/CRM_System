@@ -40,23 +40,23 @@ opensslkeys:
 	copy .\auth\opensslkeys\public_key.pem .\nginx\opensslkeys\public_key.pem
 
 auth-ssl:
-	openssl req -x509 -newkey rsa:4096 -keyout auth/ssl/key.pem -out auth/ssl/cert.pem -days 365 -nodes
+	openssl req -x509 -newkey rsa:4096 -keyout ./auth/ssl/key.pem -out ./auth/ssl/cert.pem -days 365 -nodes
 
 # Создание ключа для CA
 ca-key:
-	openssl genpkey -algorithm RSA -out sslkeys/ca.key -aes256 -pass pass:standard_password
+	openssl genpkey -algorithm RSA -out ./auth/sslkeys/ca.key -aes256 -pass pass:standard_password
 
 # Создание корневого сертификата CA
 cert-ca:
-	openssl req -x509 -new -nodes -key sslkeys/ca.key -sha256 -days 3650 -out sslkeys/ca.crt -subj "/CN=Your Root CA"
+	openssl req -x509 -new -nodes -key ./auth/sslkeys/ca.key -sha256 -days 3650 -out ./auth/sslkeys/ca.crt -subj "/CN=yourdomain.com"
 
 # Создание ключа для сервера
 server-sslkey:
-	openssl genpkey -algorithm RSA -out sslkeys/server.key
+	openssl genpkey -algorithm RSA -out ./auth/sslkeys/server.key
 # Создание запроса на сертификат для сервера
 server-sslcert:
-	openssl req -new -key sslkeys/server.key -out sslkeys/server.csr -subj "/CN=yourdomain.com"
+	openssl req -new -key ./auth/sslkeys/server.key -out ./auth/sslkeys/server.csr -subj "/CN=yourdomain.com"
 
 # Подпись сертификата сервера через CA
 trusted-sslcacert:
-	openssl x509 -req -in nginx/sslkeys/server.csr -CA nginx/sslkeys/ca.crt -CAkey nginx/sslkeys/ca.key -CAcreateserial -out nginx/sslkeys/server.pem -days 365 -sha256
+	openssl x509 -req -in ./auth/sslkeys/server.csr -CA ./auth/sslkeys/ca.crt -CAkey ./auth/sslkeys/ca.key -CAcreateserial -out ./auth/sslkeys/server.pem -days 365 -sha256
