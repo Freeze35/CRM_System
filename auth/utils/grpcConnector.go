@@ -13,12 +13,6 @@ import (
 	"time"
 )
 
-const (
-	serverCertFile   = "sslkeys/server.pem"
-	serverKeyFile    = "sslkeys/server.key"
-	clientCACertFile = "sslkeys/ca.crt"
-)
-
 func DbServiceConnector() (client dbservice.DbServiceClient, err error, conn *grpc.ClientConn) {
 	// Создаем контекст с таймаутом
 	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)

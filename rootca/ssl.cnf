@@ -6,7 +6,7 @@ prompt              = no
 
 [ req_distinguished_name ]
 C = RU
-ST = Buratia
+ST = Buryatia
 L = Ulan-Ude
 O = NoOrg
 OU = NoOU

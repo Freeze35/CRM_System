@@ -8,6 +8,12 @@ import (
 	"io/ioutil"
 )
 
+const (
+	serverCertFile   = "sslkeys/server.pem"
+	serverKeyFile    = "sslkeys/server.key"
+	clientCACertFile = "sslkeys/ca.crt"
+)
+
 // LoadTLSCredentials загружает TLS-учетные данные для сервера.
 func LoadTLSCredentials() (credentials.TransportCredentials, error) {
 	// Загрузка сертификата CA сервера

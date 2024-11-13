@@ -13,7 +13,8 @@ services:
 
   auth:
     build:
-      context: ./auth
+      context: .
+      dockerfile: ./auth/Dockerfile
     env_file:
       - ./auth/.env
     depends_on:
@@ -23,7 +24,8 @@ services:
 
   dbservice:
     build:
-      context: ./dbservice
+      context: .
+      dockerfile: ./dbservice/Dockerfile
     env_file:
       - ./dbservice/.env
     depends_on:
@@ -34,8 +36,8 @@ services:
 
   nginx:
     build:
-      context: ./nginx
-      dockerfile: Dockerfile
+      context: .
+      dockerfile: ./nginx/Dockerfile
     ports:
       - "80:80"
       - "443:443"

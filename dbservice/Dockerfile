@@ -5,7 +5,7 @@ FROM golang:1.23 AS builder
 WORKDIR /app
 
 # Копируем файлы в контейнер
-COPY . .
+COPY ./dbservice .
 
 # Устанавливаем зависимости
 RUN go mod download
@@ -17,10 +17,11 @@ RUN GOOS=linux GOARCH=amd64 go build -o dbservice main.go
 WORKDIR /app
 
 # Копируем .env файл
-COPY .env .env
+COPY ./dbservice/.env .env
+COPY ./rootca/ca.crt ./sslkeys/ca.crt
 
 # Указываем порт для приложения
-EXPOSE 8081
+EXPOSE ${DB_SERVICE_PORT}
 
 # Запускаем приложение
 CMD ["./dbservice"]
