@@ -247,6 +247,7 @@ func createClientDatabase(server *DbServiceServer) (nameDB string, err error) {
 	newDSN := dsnString(randomName) // Создаем новое соединение к этой базе
 	newDB, err := server.GetDb(newDSN)
 
+	//Проверка соединения
 	if err != nil {
 		return "", fmt.Errorf("Ошибка подключения к новой базе данных: %w", err)
 	}
