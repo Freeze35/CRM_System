@@ -13,6 +13,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 )
 
@@ -162,11 +163,24 @@ func callRegisterCompany(client dbservice.DbServiceClient, req *auth.RegisterAut
 	// Выполняем gRPC вызов RegisterCompany
 	resDB, err := client.RegisterCompany(ctx, req1)
 	if err != nil {
+
+		//Проверка на ошибку не авторизованного JWT запроса
+		authCheck := strings.Contains(err.Error(), "401")
+		var message string
+		var status uint32
+		if authCheck {
+			message = "Пользователь не предоставил авторизационный JWT токен. Ошибка 401"
+			status = http.StatusUnauthorized
+		} else {
+			message = err.Error()
+			status = http.StatusInternalServerError
+		}
+
 		response := &auth.RegisterAuthResponse{
-			Message:  "Внутреняя ошибка регистрации: " + err.Error(),
+			Message:  "Внутреняя ошибка регистрации: " + message,
 			Database: "",
 			Token:    "",
-			Status:   http.StatusInternalServerError,
+			Status:   status,
 		}
 
 		log.Printf("Ошибка при вызове RegisterCompany: %v", err)
@@ -194,13 +208,13 @@ func callRegisterCompany(client dbservice.DbServiceClient, req *auth.RegisterAut
 			Message:  "Внутренняя ошибка создания компании : " + resDB.Message,
 			Database: "",
 			Token:    "",
-			Status:   uint32(resDB.Status),
+			Status:   resDB.Status,
 		}
 		return response, nil
 	}
 }
 
-// Register Реализация метода Register
+// Register Реализация метода Register, для регистрации организации и пользователя как администратора
 func (s *AuthServiceServer) Register(ctx context.Context, req *auth.RegisterAuthRequest) (*auth.RegisterAuthResponse, error) {
 	log.Printf("Получен запрос на регистрацию пользователя: %v", req.Email)
 
@@ -212,7 +226,7 @@ func (s *AuthServiceServer) Register(ctx context.Context, req *auth.RegisterAuth
 	defer cancel()*/
 
 	// Устанавливаем соединение с gRPC сервером dbService
-	client, err, conn := utils.DbServiceConnector()
+	client, err, conn := utils.DbServiceConnector(true)
 	defer conn.Close()
 	if err != nil {
 		log.Printf("Не удалось подключиться к серверу: %v", err)
@@ -257,10 +271,23 @@ func loginUser(client dbservice.DbServiceClient, req *auth.LoginAuthRequest) (re
 	resDB, err := client.LoginDB(ctx, reqLogin)
 
 	if err != nil {
+
+		//Проверка на ошибку не авторизованного JWT запроса
+		authCheck := strings.Contains(err.Error(), "401")
+		var message string
+		var status uint32
+		if authCheck {
+			message = "Пользователь не предоставил авторизационный JWT токен. Ошибка 401"
+			status = http.StatusUnauthorized
+		} else {
+			message = err.Error()
+			status = http.StatusInternalServerError
+		}
+
 		response := &auth.LoginAuthResponse{
-			Message:  "Внутреняя ошибка логинизации: " + err.Error(),
+			Message:  "Внутреняя ошибка логинизации: " + message,
 			Database: "",
-			Status:   http.StatusInternalServerError,
+			Status:   status,
 		}
 
 		log.Printf("Ошибка при логинизации: %v", err)
@@ -279,7 +306,7 @@ func loginUser(client dbservice.DbServiceClient, req *auth.LoginAuthRequest) (re
 func (s *AuthServiceServer) Login(_ context.Context, req *auth.LoginAuthRequest) (*auth.LoginAuthResponse, error) {
 
 	// Устанавливаем соединение с gRPC сервером dbService
-	client, err, conn := utils.DbServiceConnector()
+	client, err, conn := utils.DbServiceConnector(true)
 	defer conn.Close()
 
 	if err != nil {

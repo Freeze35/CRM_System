@@ -27,6 +27,7 @@ proto-auth:
 
 proto-dbservice:
 	protoc --go_out=./dbservice/proto --go-grpc_out=./dbservice/proto ./dbservice/proto/dbservice.proto
+	protoc --go_out=./auth/proto --go-grpc_out=./auth/proto ./dbservice/proto/dbservice.proto
 
 proto-chats:
 	protoc --go_out=./chats/proto --go-grpc_out=./chats/proto ./chats/proto/chat.proto

@@ -13,7 +13,15 @@ import (
 	"time"
 )
 
-func DbServiceConnector() (client dbservice.DbServiceClient, err error, conn *grpc.ClientConn) {
+// Добавим функцию генерации токена и установим его в gRPC-запрос
+func DbServiceConnector(generateToken bool) (client dbservice.DbServiceClient, err error, conn *grpc.ClientConn) {
+	// Генерация JWT-токена
+	token, err := JwtGenerate()
+	if err != nil {
+		log.Fatalf("Не удалось сгенерировать JWT: %v", err)
+		return nil, err, nil
+	}
+
 	// Создаем контекст с таймаутом
 	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
 	defer cancel()
@@ -39,11 +47,17 @@ func DbServiceConnector() (client dbservice.DbServiceClient, err error, conn *gr
 	creds := credentials.NewTLS(&tls.Config{
 		Certificates:       []tls.Certificate{cert},
 		RootCAs:            caCertPool,
-		InsecureSkipVerify: false, // Отключаем проверку, чтобы использовать CA
+		InsecureSkipVerify: false,
 	})
 
-	// Устанавливаем соединение с gRPC сервером dbService с TLS
-	conn, err = grpc.DialContext(ctx, "nginx:443", grpc.WithTransportCredentials(creds))
+	//Стандартная опция для привязки ssl и проврка на генерецию токена
+	opts := []grpc.DialOption{grpc.WithTransportCredentials(creds)}
+	if generateToken == true {
+		opts = append(opts, grpc.WithPerRPCCredentials(jwtTokenAuth{token}))
+	}
+
+	// Настраиваем gRPC соединение с передачей JWT-токена
+	conn, err = grpc.DialContext(ctx, "nginx:443", opts...)
 	if err != nil {
 		log.Printf("Не удалось подключиться к серверу: %v", err)
 		return nil, err, conn
@@ -51,4 +65,21 @@ func DbServiceConnector() (client dbservice.DbServiceClient, err error, conn *gr
 
 	fmt.Println("Успешное подключение к gRPC серверу через NGINX с TLS")
 	return dbservice.NewDbServiceClient(conn), nil, conn
+}
+
+// jwtTokenAuth структура для установки JWT токена в качестве аутентификационных данных для gRPC
+type jwtTokenAuth struct {
+	token string
+}
+
+// GetRequestMetadata добавляет JWT-токен в метаданные
+func (j jwtTokenAuth) GetRequestMetadata(ctx context.Context, uri ...string) (map[string]string, error) {
+	return map[string]string{
+		"authorization": "Bearer " + j.token,
+	}, nil
+}
+
+// RequireTransportSecurity возвращает true для принудительного использования TLS
+func (j jwtTokenAuth) RequireTransportSecurity() bool {
+	return true
 }

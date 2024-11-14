@@ -24,7 +24,7 @@ message RegisterCompanyRequest {
 message RegisterCompanyResponse {
   string message = 1;
   string database = 2;
-  int32 status = 3;
+  uint32 status = 3;
 }
 
 message LoginDBRequest {
@@ -36,7 +36,7 @@ message LoginDBRequest {
 message LoginDBResponse {
   string message = 1;
   string database = 2;
-  int32 status = 3;
+  uint32 status = 3;
 }
 
 
@@ -52,6 +52,6 @@ message SaveMessageRequest {
 // Ответ для подтверждения сохранения сообщения
 message SaveMessageResponse {
   string response = 1;           // Статус успеха
-  int32 status = 2;
+  uint32 status = 2;
 }
 

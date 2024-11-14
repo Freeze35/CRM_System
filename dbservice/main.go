@@ -139,7 +139,7 @@ func initDB(server *DbServiceServer) error {
 		return err
 	}
 
-	// Добавляем соединение к базе данных авторизации в сервер
+	// Добавляем соединение к базе данных авторизации в пул серверов
 	server.mapDB[authDBName] = authDB
 
 	// Путь к миграциям
@@ -295,7 +295,7 @@ func createClientDatabase(server *DbServiceServer) (nameDB string, err error) {
 // 10. Фиксирует транзакцию для базы данных компании.
 // 11. Возвращает имя базы данных для компании и nil, если все операции выполнены успешно.
 // registerCompany регистрирует новую компанию и создает пользователя в системе авторизации.
-func registerCompany(server *DbServiceServer, req *pb.RegisterCompanyRequest) (nameDB string, err error, status int32) {
+func registerCompany(server *DbServiceServer, req *pb.RegisterCompanyRequest) (nameDB string, err error, status uint32) {
 	// Получаем имя базы данных авторизации из переменных окружения.
 	authDBName := os.Getenv("DB_AUTH_NAME")
 
@@ -642,7 +642,7 @@ func main() {
 	// Инициализируем базы данных, загружая настройки из .env файла
 	err = initDB(serverPoll)
 	if err != nil {
-		log.Fatal("Ошибка при загрузке .env файла")
+		log.Fatal("Ошибка при инициализации первичной БД")
 	}
 
 	// Откладываем закрытие всех баз данных до завершения работы программы
@@ -658,6 +658,7 @@ func main() {
 		log.Fatalf("Не удалось запустить сервер: %v", err)
 	}
 
+	//Подключаем ssl сертификацию для https
 	var opts []grpc.ServerOption
 	tlsCredentials, err := utils.LoadTLSCredentials()
 	if err != nil {

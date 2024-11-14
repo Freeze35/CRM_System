@@ -74,7 +74,7 @@ func JwtGenerate() (string, error) {
 	// Установка данных в токен
 	claims := token.Claims.(jwt.MapClaims)
 	claims["foo"] = "bar"
-	claims["exp"] = time.Now().Add(15000 * time.Second).Unix() // Время истечения токена
+	claims["exp"] = time.Now().Add(1440 * time.Minute).Unix() // Время истечения токена // 1 день
 
 	// Подпись токена
 	tokenString, err := token.SignedString(privKey)
