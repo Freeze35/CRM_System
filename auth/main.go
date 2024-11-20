@@ -354,7 +354,7 @@ func main() {
 	var opts []grpc.ServerOption
 	tlsCredentials, err := utils.LoadTLSCredentials()
 	if err != nil {
-		log.Fatalf("cannot load TLS credentials: %s", err)
+		log.Fatalf("Невозможно загрузить учетные данные TLS: %s", err)
 	}
 	opts = []grpc.ServerOption{
 		grpc.Creds(tlsCredentials), // Добавление TLS опций

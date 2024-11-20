@@ -28,39 +28,45 @@ func NewRedisClient() *redis.Client {
 
 func (s *server) Save(ctx context.Context, req *pb.SaveRedisRequest) (*pb.SaveRedisResponse, error) {
 
-	expiration := time.Duration(req.Expiration) * time.Minute * 10
+	//Считываем указанное время существования кэша
+	expiration := time.Duration(req.Expiration)
+
+	//С помощью клиента для редис кэша сохраняем данные
 	success, err := s.RedisClient.SetNX(ctx, req.Key, req.Value, expiration).Result()
 	if err != nil {
 		return &pb.SaveRedisResponse{
-			Message: "Failed to save key: " + err.Error(),
+			Message: "Ошибка при сохранении: " + err.Error(),
 			Status:  http.StatusInternalServerError,
 		}, err
 	}
 
+	//Сохранение прошло успешно?
 	if !success {
 		return &pb.SaveRedisResponse{
-			Message: "Key already exists",
+			Message: "Ключ уже существует для сохранения и не истёк",
 			Status:  http.StatusConflict,
 		}, nil
 	}
 
 	return &pb.SaveRedisResponse{
-		Message: "Key saved successfully",
+		Message: "Ключ сохранён успешно",
 		Status:  http.StatusOK,
 	}, nil
 }
 
 func (s *server) Get(ctx context.Context, req *pb.GetRedisRequest) (*pb.GetRedisResponse, error) {
 
+	//Получаем значение по ключу
 	value, err := s.RedisClient.Get(ctx, req.Key).Result()
+
 	if err == redis.Nil {
 		return &pb.GetRedisResponse{
-			Message: "Key not found",
+			Message: "Ключ не найден",
 			Status:  http.StatusNotFound,
 		}, nil
 	} else if err != nil {
 		return &pb.GetRedisResponse{
-			Message: "Failed to get key: " + err.Error(),
+			Message: "Ошибка при получении данных по ключу: " + err.Error(),
 			Status:  http.StatusInternalServerError,
 		}, err
 	}
@@ -78,19 +84,22 @@ func main() {
 		log.Fatalf("Error loading .env file: %v", err)
 	}
 
+	//Создаём соединение с редис кэшем
 	redisClient := NewRedisClient()
 	defer redisClient.Close()
 
+	//Создаём соединение tcp для прослушивания входящих Grpc запросов
 	listener, err := net.Listen("tcp", ":"+os.Getenv("GRPC_PORT"))
 	if err != nil {
-		log.Fatalf("Failed to listen: %v", err)
+		log.Fatalf("Ошибка подключения: %v", err)
 	}
 
 	//Подключаем ssl сертификацию для https
 	var opts []grpc.ServerOption
+
 	tlsCredentials, err := utils.LoadTLSCredentials()
 	if err != nil {
-		log.Fatalf("cannot load TLS credentials: %s", err)
+		log.Fatalf("Невозможно загрузить учетные данные TLS: %s", err)
 	}
 	opts = []grpc.ServerOption{
 		grpc.Creds(tlsCredentials), // Добавление TLS опций
@@ -102,11 +111,12 @@ func main() {
 		}),
 	}
 
+	//Создаём Grpc Сервер
 	grpcServer := grpc.NewServer(opts...)
 	pb.RegisterRedisServiceServer(grpcServer, &server{RedisClient: redisClient})
 
 	log.Println("gRPC server for RedisService is running on port" + os.Getenv("GRPC_PORT"))
 	if err := grpcServer.Serve(listener); err != nil {
-		log.Fatalf("Failed to serve: %v", err)
+		log.Fatalf("Проблема в запуске сервера: %v", err)
 	}
 }
