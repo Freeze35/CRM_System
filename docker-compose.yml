@@ -42,10 +42,15 @@ services:
       - "80:80"
       - "443:443"
   redis:
-    image: redis:alpine
-    container_name: redis_cache
+    build:
+      context: . # Путь к директории с Dockerfile
+      dockerfile: ./redis/Dockerfile # Указываем Dockerfile
     ports:
-      - "6379:6379"
+      - "50060:50060" # Пробрасываем порт для gRPC сервиса
+      - "6379:6379"   # Пробрасываем порт для Redis (если требуется доступ извне)
+    volumes:
+      - redis_data:/data # Хранилище данных Redis
 
 volumes:
   db-data:  # Определяем volume db-data
+  redis_data:  # Объем данных для Redis

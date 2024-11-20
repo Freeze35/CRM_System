@@ -264,7 +264,7 @@ func loginUser(client dbservice.DbServiceClient, req *auth.LoginAuthRequest) (re
 	}
 
 	// Создаем контекст с тайм-аутом для запроса
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second*2)
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
 	defer cancel()
 
 	// Выполняем gRPC вызов RegisterCompany
@@ -294,6 +294,7 @@ func loginUser(client dbservice.DbServiceClient, req *auth.LoginAuthRequest) (re
 		return response, nil
 	}
 
+	//Получен ответ о логинизации от dbservice
 	response = &auth.LoginAuthResponse{
 		Message:  resDB.Message,
 		Database: resDB.Database,
@@ -303,6 +304,7 @@ func loginUser(client dbservice.DbServiceClient, req *auth.LoginAuthRequest) (re
 	return response, nil
 }
 
+// Реализация метода Login, для авторизации уже зарегистрированного пользователя в AutorizationDB
 func (s *AuthServiceServer) Login(_ context.Context, req *auth.LoginAuthRequest) (*auth.LoginAuthResponse, error) {
 
 	// Устанавливаем соединение с gRPC сервером dbService
@@ -310,9 +312,16 @@ func (s *AuthServiceServer) Login(_ context.Context, req *auth.LoginAuthRequest)
 	defer conn.Close()
 
 	if err != nil {
-		return nil, err
+		response := &auth.LoginAuthResponse{
+			Message:  "Не удалось подключиться к серверу: " + err.Error(),
+			Database: "",
+			Token:    "",
+			Status:   http.StatusInternalServerError,
+		}
+		return response, err
 	}
 
+	//Проводим авторизацию пользователя с запросом к dbservice
 	response, err := loginUser(client, req)
 	if err != nil {
 		return nil, err

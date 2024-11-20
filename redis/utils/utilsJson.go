@@ -1,7 +1,6 @@
 package utils
 
 import (
-	"bytes"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -30,20 +29,4 @@ func ConvertJSONToStruct[T any](input interface{}) (*T, error) {
 		return nil, fmt.Errorf("failed to parse JSON: %w", err)
 	}
 	return &result, nil
-}
-
-// ConvertStructToJSON универсальная функция для преобразования структуры в JSON
-func ConvertStructToJSON(input interface{}) (string, error) {
-	var buffer bytes.Buffer
-	encoder := json.NewEncoder(&buffer)
-
-	// Настройка Encoder для обеспечения читаемости JSON (опционально)
-	encoder.SetIndent("", "  ") // Добавляет отступы для форматирования
-
-	// Кодирование входных данных в JSON
-	if err := encoder.Encode(input); err != nil {
-		return "", fmt.Errorf("failed to encode to JSON: %w", err)
-	}
-
-	return buffer.String(), nil
 }

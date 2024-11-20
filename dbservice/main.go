@@ -4,6 +4,7 @@ import (
 	"context"
 	"crmSystem/migrations"
 	pb "crmSystem/proto/dbservice" // Импортируйте сгенерированный пакет из протобуферов
+	"crmSystem/proto/redis"
 	"crmSystem/utils"
 	"database/sql"
 	"fmt"
@@ -16,6 +17,8 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"strconv"
+	"sync"
 	"time"
 )
 
@@ -55,7 +58,7 @@ func (s *DbServiceServer) GetDb(dbName string) (*sql.DB, error) {
 		_ = db.Close() // Игнорируем ошибки закрытия
 	}
 
-	dsn := dsnString(dbName)
+	dsn := utils.DsnString(dbName)
 	// Если соединения нет или оно было закрыто, создаем новое
 	db, err := sql.Open("postgres", dsn)
 	if err != nil {
@@ -70,30 +73,6 @@ func (s *DbServiceServer) GetDb(dbName string) (*sql.DB, error) {
 
 	s.mapDB[dbName] = db // Сохраняем новое соединение в карту
 	return db, nil
-}
-
-// dsnString создает строку подключения для базы данных PostgreSQL.
-//
-// Параметры:
-// - dbName: Имя базы данных, к которой необходимо подключиться.
-//
-// Возвращает:
-// - Строку подключения в формате, необходимом для подключения к PostgreSQL.
-//
-// Строка подключения содержит следующие параметры:
-// - host: Адрес хоста базы данных (DB_HOST).
-// - port: Порт для подключения к базе данных (DB_PORT).
-// - user: Имя пользователя для подключения к базе данных (DB_USER).
-// - password: Пароль пользователя для подключения к базе данных (DB_PASSWORD).
-// - dbname: Имя базы данных, переданное в качестве параметра dbName.
-// - sslmode: Режим SSL (установлено значение 'disable').
-func dsnString(dbName string) string {
-	return fmt.Sprintf("host=%s port=%s user=%s password=%s dbname=%s sslmode=disable",
-		os.Getenv("DB_HOST"),
-		os.Getenv("DB_PORT"),
-		os.Getenv("DB_USER"),
-		os.Getenv("DB_PASSWORD"),
-		dbName)
 }
 
 // initDB инициализирует соединение с базой данных авторизации и выполняет необходимые миграции.
@@ -131,7 +110,7 @@ func initDB(server *DbServiceServer) error {
 	}
 
 	// Открываем соединение с базой данных Авторизации
-	dsn := dsnString(authDBName)
+	dsn := utils.DsnString(authDBName)
 	// Получаем соединение с базой данных
 	authDB, err := server.GetDb(dsn)
 	if err != nil {
@@ -167,7 +146,7 @@ func initDB(server *DbServiceServer) error {
 //
 // Процесс выполнения:
 // 1. Проверяет, что имя базы данных не является пустым.
-// 2. Создает строку подключения к серверу PostgreSQL с использованием dsnString.
+// 2. Создает строку подключения к серверу PostgreSQL с использованием utils.DsnString.
 // 3. Открывает соединение с сервером базы данных PostgreSQL.
 // 4. Проверяет, существует ли уже база данных с указанным именем.
 // 5. Если база данных существует, логирует это сообщение и возвращает nil.
@@ -178,7 +157,7 @@ func createInsideDB(dbName string) error {
 		return fmt.Errorf("Имя базы данных не может быть пустым")
 	}
 
-	dsn := dsnString(os.Getenv("SERVER_NAME"))
+	dsn := utils.DsnString(os.Getenv("SERVER_NAME"))
 
 	// Открываем соединение с базой данных postgres одиночное открытие базы данных
 	db, err := sql.Open("postgres", dsn)
@@ -244,7 +223,7 @@ func createClientDatabase(server *DbServiceServer) (nameDB string, err error) {
 	}
 
 	// Теперь подключаемся к только что созданной базе данных
-	newDSN := dsnString(randomName) // Создаем новое соединение к этой базе
+	newDSN := utils.DsnString(randomName) // Создаем новое соединение к этой базе
 	newDB, err := server.GetDb(newDSN)
 
 	//Проверка соединения
@@ -296,139 +275,202 @@ func createClientDatabase(server *DbServiceServer) (nameDB string, err error) {
 // 10. Фиксирует транзакцию для базы данных компании.
 // 11. Возвращает имя базы данных для компании и nil, если все операции выполнены успешно.
 // registerCompany регистрирует новую компанию и создает пользователя в системе авторизации.
-func registerCompany(server *DbServiceServer, req *pb.RegisterCompanyRequest) (nameDB string, err error, status uint32) {
-	// Получаем имя базы данных авторизации из переменных окружения.
-	authDBName := os.Getenv("DB_AUTH_NAME")
+func registerCompany(server *DbServiceServer, req *pb.RegisterCompanyRequest, token string) (nameDB string, err error, status uint32) {
 
-	// Создаем базу данных для компании.
-	dbName, err := createClientDatabase(server)
+	// В случае превышения порога ожидания с сервера в 10 секунд будет ошибка контекста.
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
+	defer cancel()
+
+	//Проверка базы данных в редис
+	//Устанавливаем соединение с gRPC сервером Redis
+	client, err, connRedis := utils.RedisServiceConnector(token)
 	if err != nil {
-		return "", err, http.StatusInternalServerError // Возвращаем ошибку, если создание базы данных не удалось.
+		fmt.Printf("Ошибка Подключение к redis : " + err.Error())
+		return "", err, http.StatusInternalServerError
 	}
 
-	// Формируем строку подключения к базе данных авторизации.
-	dsn := dsnString(authDBName)
+	defer connRedis.Close()
 
-	// Получаем соединение с базой данных авторизации.
-	dbConn, err := server.GetDb(dsn)
-	if err != nil {
-		return "", err, http.StatusInternalServerError // Возвращаем ошибку, если соединение не удалось.
+	// Формируем запрос на регистрацию компании
+	req1 := &redis.GetRedisRequest{
+		Key: req.NameCompany + "Register",
 	}
 
-	// Логируем состояние соединения с базой данных авторизации.
-	if dbConn == nil {
-		log.Println("Ошибка: соединение с базой данных авторизации не инициализировано")
-		return "", fmt.Errorf("Соединение с базой данных авторизации не инициализировано"), http.StatusInternalServerError
-	}
+	// Выполняем gRPC вызов RegisterCompany
+	resRedis, err := client.Get(ctx, req1)
 
-	// Начинаем транзакцию для базы данных авторизации.
-	tx, err := dbConn.Begin()
-	if err != nil {
-		return "", fmt.Errorf("Не удалось начать транзакцию: %v", err), http.StatusInternalServerError // Возвращаем ошибку, если не удалось начать транзакцию.
-	}
-
-	defer func() { // Отложенная функция для отката транзакции в случае ошибки.
+	if resRedis.Status == http.StatusOK {
+		//Получаем строку из редис и с помощью универсальной функции.
+		// Преобразуем её к переданному типу который возвращаем как ответ
+		convertedRedis, err := utils.ConvertJSONToStruct[pb.RegisterCompanyResponse](resRedis.Message)
 		if err != nil {
-			_ = tx.Rollback()                                                 // Откатываем транзакцию.
-			log.Printf("Транзакция откатана (auth DB) из-за ошибки: %v", err) // Логируем откат.
+			return "", err, http.StatusInternalServerError
 		}
-	}()
 
-	var companyId int // Переменная для хранения ID компании.
+		return convertedRedis.Database, nil, http.StatusOK // Возвращаем успешный ответ.
 
-	// Проверяем, существует ли уже компания с указанным именем и адресом.
-	query := "SELECT id FROM companies WHERE name = $1 AND address = $2"
-	err = tx.QueryRow(query, req.NameCompany, req.Address).Scan(&companyId)
-	if err != nil {
-		if err == sql.ErrNoRows { // Если компания не найдена, продолжаем вставку.
-			// Вставляем новую компанию и получаем её ID.
-			err = tx.QueryRow(
-				"INSERT INTO companies (name, address, dbname) VALUES ($1, $2, $3) RETURNING id",
-				req.NameCompany, req.Address, dbName,
-			).Scan(&companyId)
+	} else {
+
+		// Получаем имя базы данных авторизации из переменных окружения.
+		authDBName := os.Getenv("DB_AUTH_NAME")
+
+		// Создаем базу данных для компании.
+		dbName, err := createClientDatabase(server)
+		if err != nil {
+			return "", err, http.StatusInternalServerError // Возвращаем ошибку, если создание базы данных не удалось.
+		}
+
+		// Формируем строку подключения к базе данных авторизации.
+		dsn := utils.DsnString(authDBName)
+
+		// Получаем соединение с базой данных авторизации.
+		dbConn, err := server.GetDb(dsn)
+		if err != nil {
+			return "", err, http.StatusInternalServerError // Возвращаем ошибку, если соединение не удалось.
+		}
+
+		// Логируем состояние соединения с базой данных авторизации.
+		if dbConn == nil {
+			log.Println("Ошибка: соединение с базой данных авторизации не инициализировано")
+			return "", fmt.Errorf("Соединение с базой данных авторизации не инициализировано"), http.StatusInternalServerError
+		}
+
+		// Начинаем транзакцию для базы данных авторизации.
+		tx, err := dbConn.Begin()
+		if err != nil {
+			return "", fmt.Errorf("Не удалось начать транзакцию: %v", err), http.StatusInternalServerError // Возвращаем ошибку, если не удалось начать транзакцию.
+		}
+
+		defer func() { // Отложенная функция для отката транзакции в случае ошибки.
 			if err != nil {
-				return "", fmt.Errorf("Не удалось создать компанию: %v", err), http.StatusInternalServerError // Возвращаем ошибку, если вставка не удалась.
+				_ = tx.Rollback()                                                 // Откатываем транзакцию.
+				log.Printf("Транзакция откатана (auth DB) из-за ошибки: %v", err) // Логируем откат.
+			}
+		}()
+
+		var companyId int // Переменная для хранения ID компании.
+
+		// Проверяем, существует ли уже компания с указанным именем и адресом.
+		query := "SELECT id FROM companies WHERE name = $1 AND address = $2"
+		err = tx.QueryRow(query, req.NameCompany, req.Address).Scan(&companyId)
+		if err != nil {
+			if err == sql.ErrNoRows { // Если компания не найдена, продолжаем вставку.
+				// Вставляем новую компанию и получаем её ID.
+				err = tx.QueryRow(
+					"INSERT INTO companies (name, address, dbname) VALUES ($1, $2, $3) RETURNING id",
+					req.NameCompany, req.Address, dbName,
+				).Scan(&companyId)
+				if err != nil {
+					return "", fmt.Errorf("Не удалось создать компанию: %v", err), http.StatusInternalServerError // Возвращаем ошибку, если вставка не удалась.
+				}
+			} else {
+				return "", fmt.Errorf("Ошибка при проверке существования компании: %v", err), http.StatusUnprocessableEntity // Возвращаем ошибку, если произошла другая ошибка.
 			}
 		} else {
-			return "", fmt.Errorf("Ошибка при проверке существования компании: %v", err), http.StatusUnprocessableEntity // Возвращаем ошибку, если произошла другая ошибка.
+			return "", fmt.Errorf("Компания с таким именем и адресом уже существует: %s", req.NameCompany), http.StatusConflict // Возвращаем ошибку, если компания уже существует.
 		}
-	} else {
-		return "", fmt.Errorf("Компания с таким именем и адресом уже существует: %s", req.NameCompany), http.StatusConflict // Возвращаем ошибку, если компания уже существует.
-	}
 
-	var authUserId int // Переменная для хранения ID пользователя.
+		var authUserId int // Переменная для хранения ID пользователя.
 
-	// Вставляем нового пользователя в таблицу authusers и получаем его ID.
-	err = tx.QueryRow(
-		"INSERT INTO authusers (email, phone, password, companyId) VALUES ($1, $2, $3, $4) RETURNING id",
-		req.Email, req.Phone, req.Password, companyId,
-	).Scan(&authUserId)
-	if err != nil {
-		return "", fmt.Errorf("Не удалось создать пользователя: %v", err), http.StatusInternalServerError // Возвращаем ошибку, если вставка не удалась.
-	}
-
-	err = tx.Commit() // Фиксируем транзакцию для базы данных авторизации.
-	if err != nil {
-		return "", fmt.Errorf("Не удалось зафиксировать транзакцию auth DB: %v", err), http.StatusInternalServerError // Возвращаем ошибку, если фиксация не удалась.
-	}
-
-	// Работа с базой данных компании.
-	dsnC := dsnString(dbName)                // Формируем строку подключения к базе данных компании.
-	dbConnCompany, err := server.GetDb(dsnC) // Получаем соединение с базой данных компании.
-
-	if dbConnCompany == nil {
-		log.Println("Ошибка: соединение с базой данных компании не инициализировано")
-		return "", fmt.Errorf("Соединение с базой данных компании не инициализировано"), http.StatusInternalServerError // Возвращаем ошибку, если соединение не удалось.
-	}
-
-	txc, err := dbConnCompany.Begin() // Начинаем транзакцию для базы данных компании.
-	if err != nil {
-		return "", fmt.Errorf("Не удалось начать транзакцию для компании: %v", err), http.StatusInternalServerError // Возвращаем ошибку, если не удалось начать транзакцию.
-	}
-
-	defer func() { // Отложенная функция для отката транзакции в случае ошибки.
+		// Вставляем нового пользователя в таблицу authusers и получаем его ID.
+		err = tx.QueryRow(
+			"INSERT INTO authusers (email, phone, password, companyId) VALUES ($1, $2, $3, $4) RETURNING id",
+			req.Email, req.Phone, req.Password, companyId,
+		).Scan(&authUserId)
 		if err != nil {
-			_ = txc.Rollback()                                                   // Откатываем транзакцию.
-			log.Printf("Транзакция откатана (company DB) из-за ошибки: %v", err) // Логируем откат.
-			// Откат действий в первой базе данных.
-			rollbackAuthDB(dbConn, companyId, authUserId)
+			return "", fmt.Errorf("Не удалось создать пользователя: %v", err), http.StatusInternalServerError // Возвращаем ошибку, если вставка не удалась.
 		}
-	}()
 
-	role := os.Getenv("FIRST_ROLE") // Получаем роль для нового пользователя.
+		err = tx.Commit() // Фиксируем транзакцию для базы данных авторизации.
+		if err != nil {
+			return "", fmt.Errorf("Не удалось зафиксировать транзакцию auth DB: %v", err), http.StatusInternalServerError // Возвращаем ошибку, если фиксация не удалась.
+		}
 
-	var roleID int // Переменная для хранения ID роли.
+		// Работа с базой данных компании.
+		dsnC := utils.DsnString(dbName)          // Формируем строку подключения к базе данных компании.
+		dbConnCompany, err := server.GetDb(dsnC) // Получаем соединение с базой данных компании.
 
-	// Вставляем новую роль в таблицу rights и получаем её ID.
-	err = txc.QueryRow("INSERT INTO rights (roles) VALUES ($1) RETURNING id", role).Scan(&roleID)
-	if err != nil {
-		return "", fmt.Errorf("Не удалось добавить название прав: %v", err), http.StatusNotImplemented // Возвращаем ошибку, если вставка не удалась.
+		if dbConnCompany == nil {
+			log.Println("Ошибка: соединение с базой данных компании не инициализировано")
+			return "", fmt.Errorf("Соединение с базой данных компании не инициализировано"), http.StatusInternalServerError // Возвращаем ошибку, если соединение не удалось.
+		}
+
+		txc, err := dbConnCompany.Begin() // Начинаем транзакцию для базы данных компании.
+		if err != nil {
+			return "", fmt.Errorf("Не удалось начать транзакцию для компании: %v", err), http.StatusInternalServerError // Возвращаем ошибку, если не удалось начать транзакцию.
+		}
+
+		defer func() { // Отложенная функция для отката транзакции в случае ошибки.
+			if err != nil {
+				_ = txc.Rollback()                                                   // Откатываем транзакцию.
+				log.Printf("Транзакция откатана (company DB) из-за ошибки: %v", err) // Логируем откат.
+				// Откат действий в первой базе данных.
+				rollbackAuthDB(dbConn, companyId, authUserId)
+			}
+		}()
+
+		role := os.Getenv("FIRST_ROLE") // Получаем роль для нового пользователя.
+
+		var roleID int // Переменная для хранения ID роли.
+
+		// Вставляем новую роль в таблицу rights и получаем её ID.
+		err = txc.QueryRow("INSERT INTO rights (roles) VALUES ($1) RETURNING id", role).Scan(&roleID)
+		if err != nil {
+			return "", fmt.Errorf("Не удалось добавить название прав: %v", err), http.StatusNotImplemented // Возвращаем ошибку, если вставка не удалась.
+		}
+
+		// Вставляем нового пользователя в таблицу users.
+		_, err = txc.Exec(
+			"INSERT INTO users (roles, companyId, rightsId, authId) VALUES ($1, $2, $3, $4)",
+			role, companyId, roleID, authUserId,
+		)
+		if err != nil {
+			return "", fmt.Errorf("Не удалось добавить пользователя: %v", err), http.StatusNotImplemented // Возвращаем ошибку, если вставка не удалась.
+		}
+
+		// Вставляем доступные действия для новой роли.
+		_, err = txc.Exec(
+			"INSERT INTO availableactions (roleId, createTasks, createChats, addWorkers) VALUES ($1, $2, $3, $4)",
+			roleID, true, true, true,
+		)
+		if err != nil {
+			return "", fmt.Errorf("Не удалось добавить доступные действия для роли: %v", err), http.StatusNotImplemented // Возвращаем ошибку, если вставка не удалась.
+		}
+
+		err = txc.Commit() // Фиксируем транзакцию для базы данных компании.
+		if err != nil {
+			return "", fmt.Errorf("Не удалось зафиксировать транзакцию компании: %v", err), http.StatusNotImplemented // Возвращаем ошибку, если фиксация не удалась.
+		}
+
+		toJsonType := &pb.RegisterCompanyResponse{
+			Message:  req.NameCompany,
+			Database: dbName,
+			Status:   http.StatusInternalServerError,
+		}
+
+		toJsonRedis, err := utils.ConvertStructToJSON(toJsonType)
+
+		//Проверка на ошибку в преобразовании к JSON строке
+		if err != nil {
+			fmt.Printf(err.Error())
+		}
+
+		//Создаём ключ, значение, и время истечения для сохранения готового запроса
+		saveRequest := &redis.SaveRedisRequest{
+			Key:        req.NameCompany + "Register",
+			Value:      toJsonRedis,
+			Expiration: int64((time.Minute * 10).Seconds()),
+		}
+
+		// Выполняем gRPC вызов RegisterCompany
+		_, err = client.Save(ctx, saveRequest)
+
+		if err != nil {
+			fmt.Printf(err.Error())
+		}
+
+		return dbName, nil, http.StatusOK // Возвращаем имя базы данных, nil и код состояния 200 OK, если все операции выполнены успешно.
 	}
-
-	// Вставляем нового пользователя в таблицу users.
-	_, err = txc.Exec(
-		"INSERT INTO users (roles, companyId, rightsId, authId) VALUES ($1, $2, $3, $4)",
-		role, companyId, roleID, authUserId,
-	)
-	if err != nil {
-		return "", fmt.Errorf("Не удалось добавить пользователя: %v", err), http.StatusNotImplemented // Возвращаем ошибку, если вставка не удалась.
-	}
-
-	// Вставляем доступные действия для новой роли.
-	_, err = txc.Exec(
-		"INSERT INTO availableactions (roleId, createTasks, createChats, addWorkers) VALUES ($1, $2, $3, $4)",
-		roleID, true, true, true,
-	)
-	if err != nil {
-		return "", fmt.Errorf("Не удалось добавить доступные действия для роли: %v", err), http.StatusNotImplemented // Возвращаем ошибку, если вставка не удалась.
-	}
-
-	err = txc.Commit() // Фиксируем транзакцию для базы данных компании.
-	if err != nil {
-		return "", fmt.Errorf("Не удалось зафиксировать транзакцию компании: %v", err), http.StatusNotImplemented // Возвращаем ошибку, если фиксация не удалась.
-	}
-
-	return dbName, nil, http.StatusOK // Возвращаем имя базы данных, nil и код состояния 200 OK, если все операции выполнены успешно.
 }
 
 // rollbackAuthDB откатывает изменения в базе данных авторизации, удаляя пользователя и компанию.
@@ -464,11 +506,56 @@ func rollbackAuthDB(dbConn *sql.DB, companyId, authUserId int) {
 }
 
 // checkUser проверяет пользователя в базе данных авторизации и возвращает имя базы данных компании.
-func checkUser(server *DbServiceServer, req *pb.LoginDBRequest) (dbName string, err error) {
+func checkUser(server *DbServiceServer, req *pb.LoginDBRequest, ctx context.Context) (dbName string, err error) {
 	// Формируем строку соединения с базой данных авторизации.
-	dsn := dsnString(os.Getenv("DB_AUTH_NAME"))
+	dsn := utils.DsnString(os.Getenv("DB_AUTH_NAME"))
 	// Получаем соединение с базой данных.
 	db, err := server.GetDb(dsn)
+
+	//Проверка базы данных в редис
+	//Устанавливаем соединение с gRPC сервером Redis
+
+	token, err := utils.GetTokenFromMetadata(ctx)
+
+	//Проверка ошибки при получении
+	if err != nil {
+		log.Printf(err.Error())
+	}
+
+	client, err, connRedis := utils.RedisServiceConnector(token)
+
+	if err != nil {
+		fmt.Printf("Ошибка Подключение к redis : " + err.Error())
+		return "", err
+	}
+
+	defer connRedis.Close()
+
+	// Формируем запрос на регистрацию компании
+	req1 := &redis.GetRedisRequest{
+		Key: req.Email + "Login",
+	}
+
+	// Выполняем gRPC вызов RegisterCompany
+	resRedis, err := client.Get(ctx, req1)
+
+	//Создаём тип для Получения базы данных
+	type DbName struct {
+		Database string
+	}
+
+	if resRedis.Status == http.StatusOK {
+
+		//Получаем строку из редис и с помощью универсальной функции.
+		// Преобразуем её к переданному типу который возвращаем как ответ
+		convertedRedis, err := utils.ConvertJSONToStruct[DbName](resRedis.Message)
+		if err != nil {
+			return "", err
+		}
+
+		return convertedRedis.Database, nil // Возвращаем успешный ответ.
+
+	}
 
 	if err != nil {
 		log.Printf("Ошибка подключения базы данных: %s", err) // Логируем ошибку подключения.
@@ -513,16 +600,43 @@ func checkUser(server *DbServiceServer, req *pb.LoginDBRequest) (dbName string, 
 		return "", err // Возвращаем ошибку при выполнении запроса.
 	}
 
+	toJsonType := &DbName{
+		Database: dbName,
+	}
+
+	toJsonRedis, err := utils.ConvertStructToJSON(toJsonType)
+
+	//Создаём ключ, значение, и время истечения для сохранения готового запроса
+	saveRequest := &redis.SaveRedisRequest{
+		Key:        req.Email + "Login",
+		Value:      toJsonRedis,
+		Expiration: int64((time.Minute * 10).Seconds()),
+	}
+
+	// Выполняем gRPC вызов RegisterCompany
+	_, err = client.Save(ctx, saveRequest)
+
+	if err != nil {
+		fmt.Printf(err.Error())
+	}
+
 	return dbName, nil // Возвращаем имя базы данных и nil в качестве ошибки, если все прошло успешно.
 }
 
-// RegisterCompany обрабатывает запрос на регистрацию новой компании.
-func (s *DbServiceServer) RegisterCompany(_ context.Context, req *pb.RegisterCompanyRequest) (*pb.RegisterCompanyResponse, error) {
+func (s *DbServiceServer) RegisterCompany(ctx context.Context, req *pb.RegisterCompanyRequest) (*pb.RegisterCompanyResponse, error) {
+
 	// Логируем получение запроса на регистрацию компании с именем из запроса.
 	log.Printf("Получен запрос на регистрацию организации: %v", req.NameCompany)
 
+	token, err := utils.GetTokenFromMetadata(ctx)
+
+	//Проверка ошибки при получении
+	if err != nil {
+		log.Printf(err.Error())
+	}
+
 	// Вызываем функцию registerCompany для создания базы данных и регистрации компании.
-	dbName, err, status := registerCompany(s, req)
+	dbName, err, status := registerCompany(s, req, token)
 	if err != nil {
 		// Если произошла ошибка, формируем ответ с сообщением об ошибке.
 		response := &pb.RegisterCompanyResponse{
@@ -544,9 +658,9 @@ func (s *DbServiceServer) RegisterCompany(_ context.Context, req *pb.RegisterCom
 }
 
 // LoginDB обрабатывает запрос на вход пользователя в систему.
-func (s *DbServiceServer) LoginDB(_ context.Context, req *pb.LoginDBRequest) (*pb.LoginDBResponse, error) {
+func (s *DbServiceServer) LoginDB(ctx context.Context, req *pb.LoginDBRequest) (*pb.LoginDBResponse, error) {
 	// Проверяем пользователя, используя функцию checkUser.
-	dbName, err := checkUser(s, req)
+	dbName, err := checkUser(s, req, ctx)
 
 	if err != nil {
 		// Если произошла ошибка при проверке пользователя, формируем ответ с сообщением об ошибке.
@@ -558,6 +672,7 @@ func (s *DbServiceServer) LoginDB(_ context.Context, req *pb.LoginDBRequest) (*p
 		return response, nil // Возвращаем ответ с ошибкой.
 	}
 
+	//Проверяем найдена ли база данных для данного пользователя
 	if dbName == "" {
 		// Если база данных не найдена, формируем ответ с сообщением об ошибке.
 		response := &pb.LoginDBResponse{
@@ -581,7 +696,7 @@ func (s *DbServiceServer) LoginDB(_ context.Context, req *pb.LoginDBRequest) (*p
 // SaveMessage сохраняет сообщение в базу данных.
 func (s *DbServiceServer) SaveMessage(ctx context.Context, req *pb.SaveMessageRequest) (*pb.SaveMessageResponse, error) {
 	// Получаем строку подключения к базе данных из переменной окружения с именем базы данных.
-	dsn := dsnString(os.Getenv(req.DbName))
+	dsn := utils.DsnString(os.Getenv(req.DbName))
 
 	// Получаем соединение с базой данных.
 	db, err := s.GetDb(dsn)
@@ -635,6 +750,42 @@ func (s *DbServiceServer) CloseAllDatabases() error {
 	return nil
 }
 
+func fullCompaniesMigrations() {
+	dsn := utils.DsnString("postgres")
+	db, err := sql.Open("postgres", dsn)
+	if err != nil {
+		log.Fatalf("Ошибка подключения к базе данных postgres: %v", err)
+	}
+	defer db.Close()
+
+	// Получаем список баз данных для миграции
+	dbNames, err := migrations.GetDatabasesToMigrate(db)
+	if err != nil {
+		log.Fatalf("Ошибка получения списка баз данных: %v", err)
+	}
+
+	// Путь к миграциям для компаний
+	migratePath := os.Getenv("MIGRATION_COMPANYDB_PATH")
+
+	// Запускаем миграции в параллельных горутинах
+	var wg sync.WaitGroup
+
+	//Счётчик базщ данных
+	counter := 0
+
+	for _, dbName := range dbNames {
+		wg.Add(1)
+
+		go migrations.MigrateCompanyDatabase(dbName, migratePath, &wg, &counter)
+	}
+
+	// Ожидаем завершения всех горутин
+	wg.Wait()
+
+	log.Println("Миграционные обновления завершены для всех баз данных.")
+	log.Printf("Проверено и обновлено %s баз данных", strconv.Itoa(counter))
+}
+
 func main() {
 	// Инициализация пула сервера
 	serverPoll := NewDbServiceServer()
@@ -642,9 +793,12 @@ func main() {
 	var err error
 	// Инициализируем базы данных, загружая настройки из .env файла
 	err = initDB(serverPoll)
+
 	if err != nil {
 		log.Fatal("Ошибка при инициализации первичной БД")
 	}
+
+	fullCompaniesMigrations()
 
 	// Откладываем закрытие всех баз данных до завершения работы программы
 	defer func() {

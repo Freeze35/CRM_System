@@ -6,33 +6,8 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/youmark/pkcs8"
 	"io/ioutil"
-	"log"
-	"os"
 	"time"
 )
-
-// Секретный ключ для подписания токена
-var jwtSecret = []byte("your_secret_key")
-
-// Функция для генерации JWT токена
-func GenerateToken(username string) (string, error) {
-	// Определяем время действия токена (1 день)
-	expirationTime := time.Now().Add(time.Hour * 24).Unix()
-
-	// Создаем токен с необходимыми полями
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, jwt.MapClaims{
-		"username": "example_user",
-		"exp":      expirationTime,
-	})
-
-	// Подписываем токен с секретным ключом
-	tokenString, err := token.SignedString(os.Getenv(""))
-	if err != nil {
-		log.Fatal("Error generating token:", err)
-	}
-
-	return tokenString, nil
-}
 
 func JwtGenerate() (string, error) {
 	// Путь к зашифрованному закрытому ключу
@@ -82,6 +57,5 @@ func JwtGenerate() (string, error) {
 		return "", fmt.Errorf("Ошибка подписывания токена: %v", err)
 	}
 
-	fmt.Println("Сгенерированный JWT:", tokenString)
 	return tokenString, nil
 }
