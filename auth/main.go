@@ -21,129 +21,6 @@ type AuthServiceServer struct {
 	auth.UnimplementedAuthServiceServer
 }
 
-type DBServiceServer struct {
-	dbservice.UnimplementedDbServiceServer
-}
-
-/*func registerHandler(w http.ResponseWriter, r *http.Request) {
-	// Структура для JSON-данных
-	type RegisterRequest struct {
-		Username  string `json:"username"`
-		Password  string `json:"password"`
-		Address   string `json:"address"`
-		CompanyDB string `json:"company_db"`
-	}
-
-	// Parse JSON
-	var req RegisterRequest
-	if err := utils.ParseJSON(r, &req); err != nil {
-		utils.WriteError(w, http.StatusBadRequest, err)
-		return
-	}
-
-	// Создание новой базы данных компании
-	resp, err := http.Post(fmt.Sprintf("%s/%s/create-db", os.Getenv("DB_SERVER_URL"), os.Getenv("DB_SERVICE_NAME")), "", nil)
-	if err != nil || resp.StatusCode != http.StatusOK {
-		http.Error(w, "Ошибка создания базы данных компании", http.StatusInternalServerError)
-		return
-	}
-	defer resp.Body.Close()
-
-	// Читаем тело ответа после создания базы данных
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		http.Error(w, "Ошибка при чтении тела ответа", http.StatusInternalServerError)
-		return
-	}
-
-	// Выводим тело ответа с названием новой базы данных
-	dbName := string(body)
-
-	// Структура для JSON-данных
-	type dbStruct struct {
-		Name    string `json:"name"`
-		Address string `json:"address"`
-		DbName  string `json:"dbname"`
-	}
-
-	dbJson := dbStruct{
-		Name:    req.CompanyDB,
-		Address: req.Address,
-		DbName:  dbName,
-	}
-
-	// Регистрация организации в базе компании
-	_, err = utils.SendPostRequest(
-		fmt.Sprintf("%s/%s/register", os.Getenv("DB_SERVER_URL"), os.Getenv("DB_SERVICE_NAME")),
-		dbJson)
-	if err != nil {
-		http.Error(w, "Ошибка регистрации в базе компании", http.StatusInternalServerError)
-		return
-	}
-
-	//генерация токина для ответа авторизованного пользователя
-	token, err := utils.GenerateToken(req.Username)
-	if err != nil {
-		http.Error(w, "Ошибка генерации токена", http.StatusInternalServerError)
-		return
-	}
-
-	// Возврат успешного JSON-ответа
-	response := map[string]string{
-		"message":  "Регистрация успешна в обеих базах данных",
-		"database": "dbName",
-		"token":    token,
-	}
-	WriteJSON(w, http.StatusOK, response)
-}*/
-
-/*func getTest(w http.ResponseWriter, r *http.Request) {
-	// Здесь вы можете выполнить нужные действия и вернуть ответ
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte("Тест успешен!"))
-}*/
-
-/*func loginHandler(w http.ResponseWriter, r *http.Request) {
-	username := r.URL.Query().Get("username")
-	password := r.URL.Query().Get("password")
-
-	resp, err := http.Post(fmt.Sprintf("%s/login?username=%s&password=%s", os.Getenv("DB_SERVER_URL"), username, password), "", nil)
-	if err != nil || resp.StatusCode != http.StatusOK {
-		http.Error(w, "Ошибка входа", http.StatusUnauthorized)
-		return
-	}
-
-	defer resp.Body.Close()
-
-	token, err := utils.GenerateToken(username)
-	if err != nil {
-		http.Error(w, "Ошибка генерации токена", http.StatusInternalServerError)
-		return
-	}
-
-	// Возвращаем токен клиенту
-	response := map[string]string{
-		"message": "Успешный вход",
-		"token":   token,
-	}
-	WriteJSON(w, http.StatusOK, response)
-}*/
-
-/*func usersHandler(w http.ResponseWriter, r *http.Request) {
-	// Обработка запроса списка пользователей
-}
-
-func loginHandler(w http.ResponseWriter, r *http.Request) {
-	token, err := utils.JwtGenerate()
-	if err != nil {
-		fmt.Sprintf("Ошибка: %s", err)
-	}
-	response := map[string]string{
-		"token": token,
-	}
-	WriteJSON(w, http.StatusOK, response)
-}*/
-
 func callRegisterCompany(client dbservice.DbServiceClient, req *auth.RegisterAuthRequest, ctx context.Context) (response *auth.RegisterAuthResponse, err error) {
 
 	// Создаем контекст с тайм-аутом для запроса
@@ -177,10 +54,11 @@ func callRegisterCompany(client dbservice.DbServiceClient, req *auth.RegisterAut
 		}
 
 		response := &auth.RegisterAuthResponse{
-			Message:  "Внутреняя ошибка регистрации: " + message,
-			Database: "",
-			Token:    "",
-			Status:   status,
+			Message:       "Внутреняя ошибка регистрации: " + message,
+			Database:      "",
+			UserCompanyId: "",
+			Token:         "",
+			Status:        status,
 		}
 
 		log.Printf("Ошибка при вызове RegisterCompany: %v", err)
@@ -194,21 +72,34 @@ func callRegisterCompany(client dbservice.DbServiceClient, req *auth.RegisterAut
 		// Пример успешного ответа с генерированным токеном
 		token, err := utils.JwtGenerate()
 		if err != nil {
-			fmt.Sprintf("Ошибка: %s", err)
+
+			fmt.Sprintf("Ошибка генерации токена: %s", err)
+			response := &auth.RegisterAuthResponse{
+				Message:       resDB.Message,
+				Database:      resDB.Database,
+				UserCompanyId: resDB.UserCompanyId,
+				Token:         "",
+				Status:        http.StatusOK,
+			}
+			return response, nil
+		} else {
+			response := &auth.RegisterAuthResponse{
+				Message:       resDB.Message,
+				Database:      resDB.Database,
+				UserCompanyId: resDB.UserCompanyId,
+				Token:         token,
+				Status:        http.StatusOK,
+			}
+			return response, nil
 		}
-		response := &auth.RegisterAuthResponse{
-			Message:  resDB.Message,
-			Database: resDB.Database,
-			Token:    token,
-			Status:   http.StatusOK,
-		}
-		return response, nil
+
 	} else {
 		response := &auth.RegisterAuthResponse{
-			Message:  "Внутренняя ошибка создания компании : " + resDB.Message,
-			Database: "",
-			Token:    "",
-			Status:   resDB.Status,
+			Message:       "Внутренняя ошибка создания компании : " + resDB.Message,
+			Database:      "",
+			UserCompanyId: "",
+			Token:         "",
+			Status:        resDB.Status,
 		}
 		return response, nil
 	}
@@ -232,10 +123,11 @@ func (s *AuthServiceServer) Register(ctx context.Context, req *auth.RegisterAuth
 		log.Printf("Не удалось подключиться к серверу: %v", err)
 		if err != nil {
 			response := &auth.RegisterAuthResponse{
-				Message:  "Не удалось подключиться к серверу : " + err.Error(),
-				Database: "",
-				Token:    "",
-				Status:   http.StatusInternalServerError,
+				Message:       "Не удалось подключиться к серверу : " + err.Error(),
+				Database:      "",
+				UserCompanyId: "",
+				Token:         "",
+				Status:        http.StatusInternalServerError,
 			}
 			return response, err
 		}
@@ -243,10 +135,11 @@ func (s *AuthServiceServer) Register(ctx context.Context, req *auth.RegisterAuth
 	response, err := callRegisterCompany(client, req, ctx)
 	if err != nil {
 		response := &auth.RegisterAuthResponse{
-			Message:  "Внутренняя ошибка создания компании : " + err.Error(),
-			Database: "",
-			Token:    "",
-			Status:   http.StatusInternalServerError,
+			Message:       "Внутренняя ошибка создания компании : " + err.Error(),
+			Database:      "",
+			UserCompanyId: "",
+			Token:         "",
+			Status:        http.StatusInternalServerError,
 		}
 		return response, err
 	}
@@ -295,13 +188,29 @@ func loginUser(client dbservice.DbServiceClient, req *auth.LoginAuthRequest) (re
 	}
 
 	//Получен ответ о логинизации от dbservice
-	response = &auth.LoginAuthResponse{
-		Message:  resDB.Message,
-		Database: resDB.Database,
-		Token:    "",
-		Status:   resDB.Status,
+	token, err := utils.JwtGenerate()
+	if err != nil {
+
+		fmt.Sprintf("Ошибка генерации токена: %s", err)
+		response = &auth.LoginAuthResponse{
+			Message:       resDB.Message,
+			Database:      resDB.Database,
+			UserCompanyId: resDB.UserCompanyId,
+			Token:         "",
+			Status:        resDB.Status,
+		}
+		return response, nil
+	} else {
+		response = &auth.LoginAuthResponse{
+			Message:       resDB.Message,
+			Database:      resDB.Database,
+			UserCompanyId: resDB.UserCompanyId,
+			Token:         token,
+			Status:        resDB.Status,
+		}
+		return response, nil
 	}
-	return response, nil
+
 }
 
 // Реализация метода Login, для авторизации уже зарегистрированного пользователя в AutorizationDB
@@ -313,10 +222,11 @@ func (s *AuthServiceServer) Login(_ context.Context, req *auth.LoginAuthRequest)
 
 	if err != nil {
 		response := &auth.LoginAuthResponse{
-			Message:  "Не удалось подключиться к серверу: " + err.Error(),
-			Database: "",
-			Token:    "",
-			Status:   http.StatusInternalServerError,
+			Message:       "Не удалось подключиться к серверу: " + err.Error(),
+			Database:      "",
+			UserCompanyId: "",
+			Token:         "",
+			Status:        http.StatusInternalServerError,
 		}
 		return response, err
 	}

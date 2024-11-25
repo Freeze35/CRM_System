@@ -2,6 +2,8 @@ syntax = "proto3";
 
 package protobuff;
 
+import "google/protobuf/timestamp.proto";
+
 option go_package = "./dbservice/;dbservice";
 
 service dbService {
@@ -11,7 +13,58 @@ service dbService {
   rpc LoginDB (LoginDBRequest) returns (LoginDBResponse);
   // Сохранения сообщения в базе данных
   rpc SaveMessage(SaveMessageRequest) returns (SaveMessageResponse);
+
+  // Запускаем новый таймер
+  rpc  StartTimerDB(StartEndTimerRequest) returns (StartEndTimerResponse);
+  //Завершаем работу таймера
+  rpc  EndTimer(StartEndTimerRequest) returns (StartEndTimerResponse);
+  // Получаем активный таймер
+  rpc  GetWorkingTimer(WorkingTimerRequest) returns (WorkingTimerResponse);
+  //Изменяет таймер необходимым образом
+  rpc  ChangeTimerDB(ChangeTimerRequest) returns (ChangeTimerResponse);
+  // Добавляем необходимый таймер
+  rpc  AddTimerDB(AddTimerRequest) returns (AddTimerResponse);
 }
+
+message StartEndTimerRequest{
+  string userId = 1;
+}
+
+message StartEndTimerResponse{
+  string message = 1;
+  uint32 status = 2;
+}
+
+message WorkingTimerRequest{
+  string userId = 1;
+}
+
+message WorkingTimerResponse{
+  google.protobuf.Timestamp start_time = 1; // Время начала отсчёта таймера
+  google.protobuf.Timestamp end_time = 2;   // Время окончания отсчёта таймера (опционально)
+}
+
+message ChangeTimerRequest{
+  string userId = 1;
+  string timerId = 2;
+}
+
+message ChangeTimerResponse{
+  google.protobuf.Timestamp start_time = 1; // Время начала отсчёта таймера
+  google.protobuf.Timestamp end_time = 2;   // Время окончания отсчёта таймера (опционально)
+}
+
+message AddTimerRequest{
+  string userId = 1;
+  string timerId = 2;
+}
+
+message AddTimerResponse{
+  google.protobuf.Timestamp start_time = 1; // Время начала отсчёта таймера
+  google.protobuf.Timestamp end_time = 2;   // Время окончания отсчёта таймера (опционально)
+}
+
+
 
 message RegisterCompanyRequest {
   string nameCompany = 1;
@@ -24,7 +77,8 @@ message RegisterCompanyRequest {
 message RegisterCompanyResponse {
   string message = 1;
   string database = 2;
-  uint32 status = 3;
+  string userCompanyId = 3;
+  uint32 status = 4;
 }
 
 message LoginDBRequest {
@@ -36,9 +90,9 @@ message LoginDBRequest {
 message LoginDBResponse {
   string message = 1;
   string database = 2;
-  uint32 status = 3;
+  string userCompanyId = 3;
+  uint32 status = 4;
 }
-
 
 // Сообщение для запроса сохранения сообщения в базе данных
 message SaveMessageRequest {

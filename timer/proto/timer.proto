@@ -1,0 +1,31 @@
+syntax = "proto3";
+
+package protobuff;
+
+option go_package = "./timer/;timer";
+
+service TimerService {
+  // Метод для регистрации
+  rpc SaveTimer (SaveTimerRequest) returns (SaveTimerResponse);
+  rpc GetOpenTimer (GetTimerRequest) returns (GetTimerResponse);
+}
+
+message SaveTimerRequest {
+  string dbName = 1;
+  string userId = 2;
+}
+
+message SaveTimerResponse {
+  string message = 1;
+  uint32 status = 2;
+}
+
+message GetTimerRequest {
+  string dbName = 1;
+  string userId = 2;
+}
+
+message GetTimerResponse {
+  string message = 1;
+  uint32 status = 2;
+}

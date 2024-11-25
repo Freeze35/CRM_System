@@ -275,7 +275,7 @@ func createClientDatabase(server *DbServiceServer) (nameDB string, err error) {
 // 10. Фиксирует транзакцию для базы данных компании.
 // 11. Возвращает имя базы данных для компании и nil, если все операции выполнены успешно.
 // registerCompany регистрирует новую компанию и создает пользователя в системе авторизации.
-func registerCompany(server *DbServiceServer, req *pb.RegisterCompanyRequest, token string) (nameDB string, err error, status uint32) {
+func registerCompany(server *DbServiceServer, req *pb.RegisterCompanyRequest, token string) (nameDB string, err error, userCompanyId string, status uint32) {
 
 	// В случае превышения порога ожидания с сервера в 10 секунд будет ошибка контекста.
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
@@ -286,7 +286,7 @@ func registerCompany(server *DbServiceServer, req *pb.RegisterCompanyRequest, to
 	client, err, connRedis := utils.RedisServiceConnector(token)
 	if err != nil {
 		fmt.Printf("Ошибка Подключение к redis : " + err.Error())
-		return "", err, http.StatusInternalServerError
+		return "", err, "", http.StatusInternalServerError
 	}
 
 	defer connRedis.Close()
@@ -304,10 +304,10 @@ func registerCompany(server *DbServiceServer, req *pb.RegisterCompanyRequest, to
 		// Преобразуем её к переданному типу который возвращаем как ответ
 		convertedRedis, err := utils.ConvertJSONToStruct[pb.RegisterCompanyResponse](resRedis.Message)
 		if err != nil {
-			return "", err, http.StatusInternalServerError
+			return "", err, "", http.StatusInternalServerError
 		}
 
-		return convertedRedis.Database, nil, http.StatusOK // Возвращаем успешный ответ.
+		return convertedRedis.Database, nil, convertedRedis.UserCompanyId, http.StatusOK // Возвращаем успешный ответ.
 
 	} else {
 
@@ -317,7 +317,7 @@ func registerCompany(server *DbServiceServer, req *pb.RegisterCompanyRequest, to
 		// Создаем базу данных для компании.
 		dbName, err := createClientDatabase(server)
 		if err != nil {
-			return "", err, http.StatusInternalServerError // Возвращаем ошибку, если создание базы данных не удалось.
+			return "", err, "", http.StatusInternalServerError // Возвращаем ошибку, если создание базы данных не удалось.
 		}
 
 		// Формируем строку подключения к базе данных авторизации.
@@ -326,19 +326,19 @@ func registerCompany(server *DbServiceServer, req *pb.RegisterCompanyRequest, to
 		// Получаем соединение с базой данных авторизации.
 		dbConn, err := server.GetDb(dsn)
 		if err != nil {
-			return "", err, http.StatusInternalServerError // Возвращаем ошибку, если соединение не удалось.
+			return "", err, "", http.StatusInternalServerError // Возвращаем ошибку, если соединение не удалось.
 		}
 
 		// Логируем состояние соединения с базой данных авторизации.
 		if dbConn == nil {
 			log.Println("Ошибка: соединение с базой данных авторизации не инициализировано")
-			return "", fmt.Errorf("Соединение с базой данных авторизации не инициализировано"), http.StatusInternalServerError
+			return "", fmt.Errorf("Соединение с базой данных авторизации не инициализировано"), "", http.StatusInternalServerError
 		}
 
 		// Начинаем транзакцию для базы данных авторизации.
 		tx, err := dbConn.Begin()
 		if err != nil {
-			return "", fmt.Errorf("Не удалось начать транзакцию: %v", err), http.StatusInternalServerError // Возвращаем ошибку, если не удалось начать транзакцию.
+			return "", fmt.Errorf("Не удалось начать транзакцию: %v", err), "", http.StatusInternalServerError // Возвращаем ошибку, если не удалось начать транзакцию.
 		}
 
 		defer func() { // Отложенная функция для отката транзакции в случае ошибки.
@@ -361,29 +361,29 @@ func registerCompany(server *DbServiceServer, req *pb.RegisterCompanyRequest, to
 					req.NameCompany, req.Address, dbName,
 				).Scan(&companyId)
 				if err != nil {
-					return "", fmt.Errorf("Не удалось создать компанию: %v", err), http.StatusInternalServerError // Возвращаем ошибку, если вставка не удалась.
+					return "", fmt.Errorf("Не удалось создать компанию: %v", err), "", http.StatusInternalServerError // Возвращаем ошибку, если вставка не удалась.
 				}
 			} else {
-				return "", fmt.Errorf("Ошибка при проверке существования компании: %v", err), http.StatusUnprocessableEntity // Возвращаем ошибку, если произошла другая ошибка.
+				return "", fmt.Errorf("Ошибка при проверке существования компании: %v", err), "", http.StatusUnprocessableEntity // Возвращаем ошибку, если произошла другая ошибка.
 			}
 		} else {
-			return "", fmt.Errorf("Компания с таким именем и адресом уже существует: %s", req.NameCompany), http.StatusConflict // Возвращаем ошибку, если компания уже существует.
+			return "", fmt.Errorf("Компания с таким именем и адресом уже существует: %s", req.NameCompany), "", http.StatusConflict // Возвращаем ошибку, если компания уже существует.
 		}
 
 		var authUserId int // Переменная для хранения ID пользователя.
 
 		// Вставляем нового пользователя в таблицу authusers и получаем его ID.
 		err = tx.QueryRow(
-			"INSERT INTO authusers (email, phone, password, companyId) VALUES ($1, $2, $3, $4) RETURNING id",
+			"INSERT INTO authusers (email, phone, password, company_id) VALUES ($1, $2, $3, $4) RETURNING id",
 			req.Email, req.Phone, req.Password, companyId,
 		).Scan(&authUserId)
 		if err != nil {
-			return "", fmt.Errorf("Не удалось создать пользователя: %v", err), http.StatusInternalServerError // Возвращаем ошибку, если вставка не удалась.
+			return "", fmt.Errorf("Не удалось создать пользователя: %v", err), "", http.StatusInternalServerError // Возвращаем ошибку, если вставка не удалась.
 		}
 
 		err = tx.Commit() // Фиксируем транзакцию для базы данных авторизации.
 		if err != nil {
-			return "", fmt.Errorf("Не удалось зафиксировать транзакцию auth DB: %v", err), http.StatusInternalServerError // Возвращаем ошибку, если фиксация не удалась.
+			return "", fmt.Errorf("Не удалось зафиксировать транзакцию auth DB: %v", err), "", http.StatusInternalServerError // Возвращаем ошибку, если фиксация не удалась.
 		}
 
 		// Работа с базой данных компании.
@@ -392,12 +392,12 @@ func registerCompany(server *DbServiceServer, req *pb.RegisterCompanyRequest, to
 
 		if dbConnCompany == nil {
 			log.Println("Ошибка: соединение с базой данных компании не инициализировано")
-			return "", fmt.Errorf("Соединение с базой данных компании не инициализировано"), http.StatusInternalServerError // Возвращаем ошибку, если соединение не удалось.
+			return "", fmt.Errorf("Соединение с базой данных компании не инициализировано"), "", http.StatusInternalServerError // Возвращаем ошибку, если соединение не удалось.
 		}
 
 		txc, err := dbConnCompany.Begin() // Начинаем транзакцию для базы данных компании.
 		if err != nil {
-			return "", fmt.Errorf("Не удалось начать транзакцию для компании: %v", err), http.StatusInternalServerError // Возвращаем ошибку, если не удалось начать транзакцию.
+			return "", fmt.Errorf("Не удалось начать транзакцию для компании: %v", err), "", http.StatusInternalServerError // Возвращаем ошибку, если не удалось начать транзакцию.
 		}
 
 		defer func() { // Отложенная функция для отката транзакции в случае ошибки.
@@ -416,16 +416,18 @@ func registerCompany(server *DbServiceServer, req *pb.RegisterCompanyRequest, to
 		// Вставляем новую роль в таблицу rights и получаем её ID.
 		err = txc.QueryRow("INSERT INTO rights (roles) VALUES ($1) RETURNING id", role).Scan(&roleID)
 		if err != nil {
-			return "", fmt.Errorf("Не удалось добавить название прав: %v", err), http.StatusNotImplemented // Возвращаем ошибку, если вставка не удалась.
+			return "", fmt.Errorf("Не удалось добавить название прав: %v", err), "", http.StatusNotImplemented // Возвращаем ошибку, если вставка не удалась.
 		}
 
+		var newAdminId string
+
 		// Вставляем нового пользователя в таблицу users.
-		_, err = txc.Exec(
-			"INSERT INTO users (roles, companyId, rightsId, authId) VALUES ($1, $2, $3, $4)",
+		err = txc.QueryRow(
+			"INSERT INTO users (roles, company_id, rightsId, authId) VALUES ($1, $2, $3, $4) RETURNING id",
 			role, companyId, roleID, authUserId,
-		)
+		).Scan(&newAdminId)
 		if err != nil {
-			return "", fmt.Errorf("Не удалось добавить пользователя: %v", err), http.StatusNotImplemented // Возвращаем ошибку, если вставка не удалась.
+			return "", fmt.Errorf("Не удалось добавить пользователя: %v", err), "", http.StatusNotImplemented // Возвращаем ошибку, если вставка не удалась.
 		}
 
 		// Вставляем доступные действия для новой роли.
@@ -434,18 +436,19 @@ func registerCompany(server *DbServiceServer, req *pb.RegisterCompanyRequest, to
 			roleID, true, true, true,
 		)
 		if err != nil {
-			return "", fmt.Errorf("Не удалось добавить доступные действия для роли: %v", err), http.StatusNotImplemented // Возвращаем ошибку, если вставка не удалась.
+			return "", fmt.Errorf("Не удалось добавить доступные действия для роли: %v", err), "", http.StatusNotImplemented // Возвращаем ошибку, если вставка не удалась.
 		}
 
 		err = txc.Commit() // Фиксируем транзакцию для базы данных компании.
 		if err != nil {
-			return "", fmt.Errorf("Не удалось зафиксировать транзакцию компании: %v", err), http.StatusNotImplemented // Возвращаем ошибку, если фиксация не удалась.
+			return "", fmt.Errorf("Не удалось зафиксировать транзакцию компании: %v", err), "", http.StatusNotImplemented // Возвращаем ошибку, если фиксация не удалась.
 		}
 
 		toJsonType := &pb.RegisterCompanyResponse{
-			Message:  req.NameCompany,
-			Database: dbName,
-			Status:   http.StatusInternalServerError,
+			Message:       req.NameCompany,
+			Database:      dbName,
+			UserCompanyId: newAdminId,
+			Status:        http.StatusInternalServerError,
 		}
 
 		toJsonRedis, err := utils.ConvertStructToJSON(toJsonType)
@@ -457,7 +460,7 @@ func registerCompany(server *DbServiceServer, req *pb.RegisterCompanyRequest, to
 
 		//Создаём ключ, значение, и время истечения для сохранения готового запроса
 		saveRequest := &redis.SaveRedisRequest{
-			Key:        req.NameCompany + "Register",
+			Key:        req.NameCompany + "Register" + newAdminId,
 			Value:      toJsonRedis,
 			Expiration: int64((time.Minute * 10).Seconds()),
 		}
@@ -469,7 +472,7 @@ func registerCompany(server *DbServiceServer, req *pb.RegisterCompanyRequest, to
 			fmt.Printf(err.Error())
 		}
 
-		return dbName, nil, http.StatusOK // Возвращаем имя базы данных, nil и код состояния 200 OK, если все операции выполнены успешно.
+		return dbName, nil, newAdminId, http.StatusOK // Возвращаем имя базы данных, nil и код состояния 200 OK, если все операции выполнены успешно.
 	}
 }
 
@@ -506,7 +509,7 @@ func rollbackAuthDB(dbConn *sql.DB, companyId, authUserId int) {
 }
 
 // checkUser проверяет пользователя в базе данных авторизации и возвращает имя базы данных компании.
-func checkUser(server *DbServiceServer, req *pb.LoginDBRequest, ctx context.Context) (dbName string, err error) {
+func checkUser(server *DbServiceServer, req *pb.LoginDBRequest, ctx context.Context) (dbName string, userId string, err error) {
 	// Формируем строку соединения с базой данных авторизации.
 	dsn := utils.DsnString(os.Getenv("DB_AUTH_NAME"))
 	// Получаем соединение с базой данных.
@@ -526,45 +529,45 @@ func checkUser(server *DbServiceServer, req *pb.LoginDBRequest, ctx context.Cont
 
 	if err != nil {
 		fmt.Printf("Ошибка Подключение к redis : " + err.Error())
-		return "", err
+		return "", "", err
 	}
 
 	defer connRedis.Close()
 
 	// Формируем запрос на регистрацию компании
 	req1 := &redis.GetRedisRequest{
-		Key: req.Email + "Login",
+		Key: req.Email + "Login" + userId,
+		// Выполняем gRPC вызов RegisterCompany
+		//Создаём тип для Получения базы данных
+		//Получаем строку из редис и с помощью универсальной функции.
+		// Преобразуем её к переданному типу который возвращаем как ответ
 	}
 
-	// Выполняем gRPC вызов RegisterCompany
 	resRedis, err := client.Get(ctx, req1)
+	if err != nil {
+		log.Printf("Ошибка подключения базы данных: %s", err) // Логируем ошибку подключения.
+		return "", "", err                                    // Возвращаем пустую строку и ошибку.
+	}
 
-	//Создаём тип для Получения базы данных
 	type DbName struct {
-		Database string
+		Database      string
+		userCompanyId string
 	}
 
 	if resRedis.Status == http.StatusOK {
 
-		//Получаем строку из редис и с помощью универсальной функции.
-		// Преобразуем её к переданному типу который возвращаем как ответ
 		convertedRedis, err := utils.ConvertJSONToStruct[DbName](resRedis.Message)
 		if err != nil {
-			return "", err
+			return "", "", err
 		}
 
-		return convertedRedis.Database, nil // Возвращаем успешный ответ.
+		return convertedRedis.Database, convertedRedis.userCompanyId, nil // Возвращаем успешный ответ.
 
-	}
-
-	if err != nil {
-		log.Printf("Ошибка подключения базы данных: %s", err) // Логируем ошибку подключения.
-		return "", err                                        // Возвращаем пустую строку и ошибку.
 	}
 
 	// SQL-запрос для проверки существования пользователя по email или телефону и паролю.
 	query := `
-        SELECT companyId
+        SELECT id, company_id
         FROM authusers 
         WHERE (email = $1 OR phone = $2) 
         AND password = $3
@@ -572,15 +575,18 @@ func checkUser(server *DbServiceServer, req *pb.LoginDBRequest, ctx context.Cont
 
 	// Переменная для хранения ID компании, к которой принадлежит пользователь.
 	companyID := ""
+	//Id пользователя в авторизационной базе данных
+	authUserId := ""
+
 	// Выполняем запрос и сканируем результат в переменную companyID.
-	err = db.QueryRow(query, req.Email, req.Phone, req.Password).Scan(&companyID)
+	err = db.QueryRow(query, req.Email, req.Phone, req.Password).Scan(&authUserId, &companyID)
 	fmt.Println(companyID) // Выводим companyID для отладки.
 
 	if err != nil {
 		if err == sql.ErrNoRows {
-			return "", fmt.Errorf("Пользователь не найден") // Пользователь не найден, возвращаем ошибку.
+			return "", "", fmt.Errorf("Пользователь не найден") // Пользователь не найден, возвращаем ошибку.
 		}
-		return "", err // Возвращаем ошибку при выполнении запроса.
+		return "", "", err // Возвращаем ошибку при выполнении запроса.
 	}
 
 	// SQL-запрос для получения имени базы данных компании по ее ID.
@@ -595,20 +601,45 @@ func checkUser(server *DbServiceServer, req *pb.LoginDBRequest, ctx context.Cont
 
 	if err != nil {
 		if err == sql.ErrNoRows {
-			return "", nil // Если компании не найдены, возвращаем пустую строку.
+			return "", "", fmt.Errorf("Запись о базе данных не найден") // Если компании не найдены, возвращаем пустую строку.
 		}
-		return "", err // Возвращаем ошибку при выполнении запроса.
+		return "", "", err // Возвращаем ошибку при выполнении запроса.
+	}
+
+	// Работа с базой данных компании.
+
+	dsnC := utils.DsnString(dbName)          // Формируем строку подключения к базе данных компании.
+	dbConnCompany, err := server.GetDb(dsnC) // Получаем соединение с базой данных компании.
+
+	if dbConnCompany == nil {
+		log.Println("Ошибка: соединение с базой данных компании не инициализировано")
+		return "", "", fmt.Errorf("Соединение с базой данных компании не инициализировано") // Возвращаем ошибку, если соединение не удалось.
+	}
+
+	// Вставляем нового пользователя в таблицу users.
+	/*err = txc.QueryRow(
+		"SELECT id FROM users WHERE authId = "
+		"INSERT INTO users (roles, companyId, rightsId, authId) VALUES ($1, $2, $3, $4) RETURNING id",
+		role, companyId, roleID, authUserId,
+	).Scan(&newAdminId)*/
+
+	// Выполняем запрос и сканируем результат в переменную dbName.
+	err = dbConnCompany.QueryRow("SELECT id FROM users WHERE authId = $1", authUserId).Scan(&userId)
+
+	if err != nil {
+		return "", "", fmt.Errorf("Не удалось найти пользователя в базе данных компании: %v", err) // Возвращаем ошибку, если вставка не удалась.
 	}
 
 	toJsonType := &DbName{
-		Database: dbName,
+		Database:      dbName,
+		userCompanyId: userId,
 	}
 
 	toJsonRedis, err := utils.ConvertStructToJSON(toJsonType)
 
 	//Создаём ключ, значение, и время истечения для сохранения готового запроса
 	saveRequest := &redis.SaveRedisRequest{
-		Key:        req.Email + "Login",
+		Key:        req.Email + "Login" + userId,
 		Value:      toJsonRedis,
 		Expiration: int64((time.Minute * 10).Seconds()),
 	}
@@ -620,7 +651,7 @@ func checkUser(server *DbServiceServer, req *pb.LoginDBRequest, ctx context.Cont
 		fmt.Printf(err.Error())
 	}
 
-	return dbName, nil // Возвращаем имя базы данных и nil в качестве ошибки, если все прошло успешно.
+	return dbName, userId, nil // Возвращаем имя базы данных и nil в качестве ошибки, если все прошло успешно.
 }
 
 func (s *DbServiceServer) RegisterCompany(ctx context.Context, req *pb.RegisterCompanyRequest) (*pb.RegisterCompanyResponse, error) {
@@ -636,22 +667,24 @@ func (s *DbServiceServer) RegisterCompany(ctx context.Context, req *pb.RegisterC
 	}
 
 	// Вызываем функцию registerCompany для создания базы данных и регистрации компании.
-	dbName, err, status := registerCompany(s, req, token)
+	dbName, err, userId, status := registerCompany(s, req, token)
 	if err != nil {
 		// Если произошла ошибка, формируем ответ с сообщением об ошибке.
 		response := &pb.RegisterCompanyResponse{
-			Message:  err.Error(), // Сообщение об ошибке.
-			Database: dbName,      // Имя базы данных (может быть пустым в случае ошибки).
-			Status:   status,      // Статус ошибки.
+			Message:       err.Error(), // Сообщение об ошибке.
+			Database:      dbName,      // Имя базы данных (может быть пустым в случае ошибки).
+			UserCompanyId: userId,      // Id пользователя в БД компании, если был создан.
+			Status:        status,      // Статус ошибки.
 		}
 		return response, nil // Возвращаем ответ с ошибкой.
 	}
 
 	// Формируем успешный ответ, если регистрация прошла успешно.
 	response := &pb.RegisterCompanyResponse{
-		Message:  "Регистрация успешна", // Сообщение об успешной регистрации.
-		Database: dbName,                // Имя базы данных для зарегистрированной компании.
-		Status:   http.StatusOK,         // Статус успешного выполнения.
+		Message:       "Регистрация успешна", // Сообщение об успешной регистрации.
+		Database:      dbName,                // Имя базы данных для зарегистрированной компании.
+		UserCompanyId: userId,                // Id пользователя в БД компании, если был создан.
+		Status:        http.StatusOK,         // Статус успешного выполнения.
 	}
 
 	return response, nil // Возвращаем успешный ответ.
@@ -660,14 +693,15 @@ func (s *DbServiceServer) RegisterCompany(ctx context.Context, req *pb.RegisterC
 // LoginDB обрабатывает запрос на вход пользователя в систему.
 func (s *DbServiceServer) LoginDB(ctx context.Context, req *pb.LoginDBRequest) (*pb.LoginDBResponse, error) {
 	// Проверяем пользователя, используя функцию checkUser.
-	dbName, err := checkUser(s, req, ctx)
+	dbName, userId, err := checkUser(s, req, ctx)
 
 	if err != nil {
 		// Если произошла ошибка при проверке пользователя, формируем ответ с сообщением об ошибке.
 		response := &pb.LoginDBResponse{
-			Message:  "Внутренняя ошибка: " + err.Error(), // Сообщение об ошибке.
-			Database: "",                                  // Имя базы данных (пустое в случае ошибки).
-			Status:   http.StatusInternalServerError,      // Статус внутренней ошибки.
+			Message:       "Внутренняя ошибка: " + err.Error(), // Сообщение об ошибке.
+			Database:      "",                                  // Имя базы данных (пустое в случае ошибки).
+			UserCompanyId: "",                                  // ID пользователя в БД компании.
+			Status:        http.StatusInternalServerError,      // Статус внутренней ошибки.
 		}
 		return response, nil // Возвращаем ответ с ошибкой.
 	}
@@ -676,18 +710,20 @@ func (s *DbServiceServer) LoginDB(ctx context.Context, req *pb.LoginDBRequest) (
 	if dbName == "" {
 		// Если база данных не найдена, формируем ответ с сообщением об ошибке.
 		response := &pb.LoginDBResponse{
-			Message:  "Ошибка нахождения базы данных: " + err.Error(), // Сообщение об ошибке.
-			Database: "",                                              // Имя базы данных (пустое в случае ошибки).
-			Status:   http.StatusInternalServerError,                  // Статус внутренней ошибки.
+			Message:       "Ошибка нахождения базы данных: " + err.Error(), // Сообщение об ошибке.
+			Database:      "",                                              // Имя базы данных (пустое в случае ошибки).
+			UserCompanyId: "",                                              // ID пользователя в БД компании.
+			Status:        http.StatusInternalServerError,                  // Статус внутренней ошибки.
 		}
 		return response, nil // Возвращаем ответ с ошибкой.
 	}
 
 	// Формируем успешный ответ, если пользователь найден.
 	response := &pb.LoginDBResponse{
-		Message:  "Пользователь найден", // Сообщение об успешном входе.
-		Database: dbName,                // Имя базы данных, к которой подключен пользователь.
-		Status:   http.StatusOK,         // Статус успешного выполнения.
+		Message:       "Пользователь найден", // Сообщение об успешном входе.
+		Database:      dbName,                // Имя базы данных, к которой подключен пользователь.
+		UserCompanyId: userId,                // ID пользователя в БД компании.
+		Status:        http.StatusOK,         // Статус успешного выполнения.
 	}
 
 	return response, nil // Возвращаем успешный ответ.
@@ -784,6 +820,36 @@ func fullCompaniesMigrations() {
 
 	log.Println("Миграционные обновления завершены для всех баз данных.")
 	log.Printf("Проверено и обновлено %s баз данных", strconv.Itoa(counter))
+}
+
+func (s *DbServiceServer) StartTimerDB(ctx context.Context, req *pb.StartEndTimerRequest) (*pb.StartEndTimerResponse, error) {
+	//TODO implement me
+	panic("implement me")
+	return nil, nil
+}
+
+func (s *DbServiceServer) EndTimer(ctx context.Context, req *pb.StartEndTimerRequest) (*pb.StartEndTimerResponse, error) {
+	//TODO implement me
+	panic("implement me")
+	return nil, nil
+}
+
+func (s *DbServiceServer) GetWorkingTimer(ctx context.Context, req *pb.WorkingTimerRequest) (*pb.WorkingTimerResponse, error) {
+	//TODO implement me
+	panic("implement me")
+	return nil, nil
+}
+
+func (s *DbServiceServer) ChangeTimerDB(ctx context.Context, req *pb.ChangeTimerRequest) (*pb.ChangeTimerResponse, error) {
+	//TODO implement me
+	panic("implement me")
+	return nil, nil
+}
+
+func (s *DbServiceServer) AddTimerDB(context.Context, *pb.AddTimerRequest) (*pb.AddTimerResponse, error) {
+	//TODO implement me
+	panic("implement me")
+	return nil, nil
 }
 
 func main() {

@@ -38,6 +38,11 @@ proto-chats:
 	protoc --go_out=./chats/proto --go-grpc_out=./chats/proto ./chats/proto/chat.proto
 	protoc --go_out=./chats/proto --go-grpc_out=./chats/proto ./dbservice/proto/dbservice.proto
 
+proto-timer:
+	protoc --go_out=./timer/proto --go-grpc_out=./timer/proto ./timer/proto/timer.proto
+	protoc --go_out=./dbservice/proto --go-grpc_out=./dbservice/proto ./timer/proto/timer.proto
+
+
 #Создать ключи для jwt token (при генерации публичного потребуется ввести пароль создания )
 opensslkeys:
 	openssl genpkey -algorithm RSA -out ./auth/opensslkeys/private_key.pem -aes256 -pass pass:standard_password
