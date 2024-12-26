@@ -33,6 +33,16 @@ services:
     ports:
       - "8081:8081"  # Это для локальной отладки, не обязательно
 
+  timer:
+    build:
+      context: .
+      dockerfile: ./timer/Dockerfile
+    env_file:
+      - ./timer/.env
+    depends_on:
+      - db
+    ports:
+      - "50020:50020"  # Это для локальной отладки, не обязательно
 
   nginx:
     build:

@@ -19,9 +19,14 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	DbService_RegisterCompany_FullMethodName = "/protobuff.dbService/RegisterCompany"
-	DbService_LoginDB_FullMethodName         = "/protobuff.dbService/LoginDB"
-	DbService_SaveMessage_FullMethodName     = "/protobuff.dbService/SaveMessage"
+	DbService_RegisterCompany_FullMethodName   = "/protobuff.dbService/RegisterCompany"
+	DbService_LoginDB_FullMethodName           = "/protobuff.dbService/LoginDB"
+	DbService_SaveMessage_FullMethodName       = "/protobuff.dbService/SaveMessage"
+	DbService_StartTimerDB_FullMethodName      = "/protobuff.dbService/StartTimerDB"
+	DbService_EndTimerDB_FullMethodName        = "/protobuff.dbService/EndTimerDB"
+	DbService_GetWorkingTimerDB_FullMethodName = "/protobuff.dbService/GetWorkingTimerDB"
+	DbService_ChangeTimerDB_FullMethodName     = "/protobuff.dbService/ChangeTimerDB"
+	DbService_AddTimerDB_FullMethodName        = "/protobuff.dbService/AddTimerDB"
 )
 
 // DbServiceClient is the client API for DbService service.
@@ -34,6 +39,16 @@ type DbServiceClient interface {
 	LoginDB(ctx context.Context, in *LoginDBRequest, opts ...grpc.CallOption) (*LoginDBResponse, error)
 	// Сохранения сообщения в базе данных
 	SaveMessage(ctx context.Context, in *SaveMessageRequest, opts ...grpc.CallOption) (*SaveMessageResponse, error)
+	// Запускаем новый таймер
+	StartTimerDB(ctx context.Context, in *StartEndTimerRequestDB, opts ...grpc.CallOption) (*StartEndTimerResponseDB, error)
+	// Завершаем работу таймера
+	EndTimerDB(ctx context.Context, in *StartEndTimerRequestDB, opts ...grpc.CallOption) (*StartEndTimerResponseDB, error)
+	// Получаем активный таймер
+	GetWorkingTimerDB(ctx context.Context, in *WorkingTimerRequestDB, opts ...grpc.CallOption) (*WorkingTimerResponseDB, error)
+	// Изменяет таймер необходимым образом
+	ChangeTimerDB(ctx context.Context, in *ChangeTimerRequestDB, opts ...grpc.CallOption) (*ChangeTimerResponseDB, error)
+	// Добавляем необходимый таймер
+	AddTimerDB(ctx context.Context, in *AddTimerRequestDB, opts ...grpc.CallOption) (*AddTimerResponseDB, error)
 }
 
 type dbServiceClient struct {
@@ -74,6 +89,56 @@ func (c *dbServiceClient) SaveMessage(ctx context.Context, in *SaveMessageReques
 	return out, nil
 }
 
+func (c *dbServiceClient) StartTimerDB(ctx context.Context, in *StartEndTimerRequestDB, opts ...grpc.CallOption) (*StartEndTimerResponseDB, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(StartEndTimerResponseDB)
+	err := c.cc.Invoke(ctx, DbService_StartTimerDB_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *dbServiceClient) EndTimerDB(ctx context.Context, in *StartEndTimerRequestDB, opts ...grpc.CallOption) (*StartEndTimerResponseDB, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(StartEndTimerResponseDB)
+	err := c.cc.Invoke(ctx, DbService_EndTimerDB_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *dbServiceClient) GetWorkingTimerDB(ctx context.Context, in *WorkingTimerRequestDB, opts ...grpc.CallOption) (*WorkingTimerResponseDB, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(WorkingTimerResponseDB)
+	err := c.cc.Invoke(ctx, DbService_GetWorkingTimerDB_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *dbServiceClient) ChangeTimerDB(ctx context.Context, in *ChangeTimerRequestDB, opts ...grpc.CallOption) (*ChangeTimerResponseDB, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ChangeTimerResponseDB)
+	err := c.cc.Invoke(ctx, DbService_ChangeTimerDB_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *dbServiceClient) AddTimerDB(ctx context.Context, in *AddTimerRequestDB, opts ...grpc.CallOption) (*AddTimerResponseDB, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(AddTimerResponseDB)
+	err := c.cc.Invoke(ctx, DbService_AddTimerDB_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 // DbServiceServer is the server API for DbService service.
 // All implementations must embed UnimplementedDbServiceServer
 // for forward compatibility.
@@ -84,6 +149,16 @@ type DbServiceServer interface {
 	LoginDB(context.Context, *LoginDBRequest) (*LoginDBResponse, error)
 	// Сохранения сообщения в базе данных
 	SaveMessage(context.Context, *SaveMessageRequest) (*SaveMessageResponse, error)
+	// Запускаем новый таймер
+	StartTimerDB(context.Context, *StartEndTimerRequestDB) (*StartEndTimerResponseDB, error)
+	// Завершаем работу таймера
+	EndTimerDB(context.Context, *StartEndTimerRequestDB) (*StartEndTimerResponseDB, error)
+	// Получаем активный таймер
+	GetWorkingTimerDB(context.Context, *WorkingTimerRequestDB) (*WorkingTimerResponseDB, error)
+	// Изменяет таймер необходимым образом
+	ChangeTimerDB(context.Context, *ChangeTimerRequestDB) (*ChangeTimerResponseDB, error)
+	// Добавляем необходимый таймер
+	AddTimerDB(context.Context, *AddTimerRequestDB) (*AddTimerResponseDB, error)
 	mustEmbedUnimplementedDbServiceServer()
 }
 
@@ -102,6 +177,21 @@ func (UnimplementedDbServiceServer) LoginDB(context.Context, *LoginDBRequest) (*
 }
 func (UnimplementedDbServiceServer) SaveMessage(context.Context, *SaveMessageRequest) (*SaveMessageResponse, error) {
 	return nil, status.Errorf(codes.Unimplemented, "method SaveMessage not implemented")
+}
+func (UnimplementedDbServiceServer) StartTimerDB(context.Context, *StartEndTimerRequestDB) (*StartEndTimerResponseDB, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method StartTimerDB not implemented")
+}
+func (UnimplementedDbServiceServer) EndTimerDB(context.Context, *StartEndTimerRequestDB) (*StartEndTimerResponseDB, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method EndTimerDB not implemented")
+}
+func (UnimplementedDbServiceServer) GetWorkingTimerDB(context.Context, *WorkingTimerRequestDB) (*WorkingTimerResponseDB, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetWorkingTimerDB not implemented")
+}
+func (UnimplementedDbServiceServer) ChangeTimerDB(context.Context, *ChangeTimerRequestDB) (*ChangeTimerResponseDB, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ChangeTimerDB not implemented")
+}
+func (UnimplementedDbServiceServer) AddTimerDB(context.Context, *AddTimerRequestDB) (*AddTimerResponseDB, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method AddTimerDB not implemented")
 }
 func (UnimplementedDbServiceServer) mustEmbedUnimplementedDbServiceServer() {}
 func (UnimplementedDbServiceServer) testEmbeddedByValue()                   {}
@@ -178,6 +268,96 @@ func _DbService_SaveMessage_Handler(srv interface{}, ctx context.Context, dec fu
 	return interceptor(ctx, in, info, handler)
 }
 
+func _DbService_StartTimerDB_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(StartEndTimerRequestDB)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DbServiceServer).StartTimerDB(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DbService_StartTimerDB_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DbServiceServer).StartTimerDB(ctx, req.(*StartEndTimerRequestDB))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _DbService_EndTimerDB_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(StartEndTimerRequestDB)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DbServiceServer).EndTimerDB(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DbService_EndTimerDB_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DbServiceServer).EndTimerDB(ctx, req.(*StartEndTimerRequestDB))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _DbService_GetWorkingTimerDB_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(WorkingTimerRequestDB)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DbServiceServer).GetWorkingTimerDB(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DbService_GetWorkingTimerDB_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DbServiceServer).GetWorkingTimerDB(ctx, req.(*WorkingTimerRequestDB))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _DbService_ChangeTimerDB_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ChangeTimerRequestDB)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DbServiceServer).ChangeTimerDB(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DbService_ChangeTimerDB_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DbServiceServer).ChangeTimerDB(ctx, req.(*ChangeTimerRequestDB))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _DbService_AddTimerDB_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AddTimerRequestDB)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(DbServiceServer).AddTimerDB(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: DbService_AddTimerDB_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(DbServiceServer).AddTimerDB(ctx, req.(*AddTimerRequestDB))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 // DbService_ServiceDesc is the grpc.ServiceDesc for DbService service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -196,6 +376,26 @@ var DbService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "SaveMessage",
 			Handler:    _DbService_SaveMessage_Handler,
+		},
+		{
+			MethodName: "StartTimerDB",
+			Handler:    _DbService_StartTimerDB_Handler,
+		},
+		{
+			MethodName: "EndTimerDB",
+			Handler:    _DbService_EndTimerDB_Handler,
+		},
+		{
+			MethodName: "GetWorkingTimerDB",
+			Handler:    _DbService_GetWorkingTimerDB_Handler,
+		},
+		{
+			MethodName: "ChangeTimerDB",
+			Handler:    _DbService_ChangeTimerDB_Handler,
+		},
+		{
+			MethodName: "AddTimerDB",
+			Handler:    _DbService_AddTimerDB_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

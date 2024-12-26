@@ -7,4 +7,4 @@ CREATE TABLE IF NOT EXISTS authUsers
     company_id INT NOT NULL,                     -- Ссылка на колонку id в таблице companies
     createdAt TIMESTAMPTZ NOT NULL DEFAULT NOW(), -- Время создания в формате UTC
     FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE -- Внешний ключ
-    );
+);

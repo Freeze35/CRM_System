@@ -19,17 +19,27 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	TimerService_SaveTimer_FullMethodName    = "/protobuff.TimerService/SaveTimer"
-	TimerService_GetOpenTimer_FullMethodName = "/protobuff.TimerService/GetOpenTimer"
+	TimerService_StartTimer_FullMethodName      = "/protobuff.TimerService/StartTimer"
+	TimerService_EndTimer_FullMethodName        = "/protobuff.TimerService/EndTimer"
+	TimerService_GetWorkingTimer_FullMethodName = "/protobuff.TimerService/GetWorkingTimer"
+	TimerService_ChangeTimer_FullMethodName     = "/protobuff.TimerService/ChangeTimer"
+	TimerService_AddTimer_FullMethodName        = "/protobuff.TimerService/AddTimer"
 )
 
 // TimerServiceClient is the client API for TimerService service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type TimerServiceClient interface {
-	// Метод для регистрации
-	SaveTimer(ctx context.Context, in *SaveTimerRequest, opts ...grpc.CallOption) (*SaveTimerResponse, error)
-	GetOpenTimer(ctx context.Context, in *GetTimerRequest, opts ...grpc.CallOption) (*GetTimerResponse, error)
+	// Запускаем новый таймер
+	StartTimer(ctx context.Context, in *StartEndTimerRequest, opts ...grpc.CallOption) (*StartEndTimerResponse, error)
+	// Завершаем работу таймера
+	EndTimer(ctx context.Context, in *StartEndTimerRequest, opts ...grpc.CallOption) (*StartEndTimerResponse, error)
+	// Получаем активный таймер
+	GetWorkingTimer(ctx context.Context, in *WorkingTimerRequest, opts ...grpc.CallOption) (*WorkingTimerResponse, error)
+	// Изменяет таймер необходимым образом
+	ChangeTimer(ctx context.Context, in *ChangeTimerRequest, opts ...grpc.CallOption) (*ChangeTimerResponse, error)
+	// Добавляем необходимый таймер
+	AddTimer(ctx context.Context, in *AddTimerRequest, opts ...grpc.CallOption) (*AddTimerResponse, error)
 }
 
 type timerServiceClient struct {
@@ -40,20 +50,50 @@ func NewTimerServiceClient(cc grpc.ClientConnInterface) TimerServiceClient {
 	return &timerServiceClient{cc}
 }
 
-func (c *timerServiceClient) SaveTimer(ctx context.Context, in *SaveTimerRequest, opts ...grpc.CallOption) (*SaveTimerResponse, error) {
+func (c *timerServiceClient) StartTimer(ctx context.Context, in *StartEndTimerRequest, opts ...grpc.CallOption) (*StartEndTimerResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(SaveTimerResponse)
-	err := c.cc.Invoke(ctx, TimerService_SaveTimer_FullMethodName, in, out, cOpts...)
+	out := new(StartEndTimerResponse)
+	err := c.cc.Invoke(ctx, TimerService_StartTimer_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
 	return out, nil
 }
 
-func (c *timerServiceClient) GetOpenTimer(ctx context.Context, in *GetTimerRequest, opts ...grpc.CallOption) (*GetTimerResponse, error) {
+func (c *timerServiceClient) EndTimer(ctx context.Context, in *StartEndTimerRequest, opts ...grpc.CallOption) (*StartEndTimerResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(GetTimerResponse)
-	err := c.cc.Invoke(ctx, TimerService_GetOpenTimer_FullMethodName, in, out, cOpts...)
+	out := new(StartEndTimerResponse)
+	err := c.cc.Invoke(ctx, TimerService_EndTimer_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *timerServiceClient) GetWorkingTimer(ctx context.Context, in *WorkingTimerRequest, opts ...grpc.CallOption) (*WorkingTimerResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(WorkingTimerResponse)
+	err := c.cc.Invoke(ctx, TimerService_GetWorkingTimer_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *timerServiceClient) ChangeTimer(ctx context.Context, in *ChangeTimerRequest, opts ...grpc.CallOption) (*ChangeTimerResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(ChangeTimerResponse)
+	err := c.cc.Invoke(ctx, TimerService_ChangeTimer_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *timerServiceClient) AddTimer(ctx context.Context, in *AddTimerRequest, opts ...grpc.CallOption) (*AddTimerResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(AddTimerResponse)
+	err := c.cc.Invoke(ctx, TimerService_AddTimer_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -64,9 +104,16 @@ func (c *timerServiceClient) GetOpenTimer(ctx context.Context, in *GetTimerReque
 // All implementations must embed UnimplementedTimerServiceServer
 // for forward compatibility.
 type TimerServiceServer interface {
-	// Метод для регистрации
-	SaveTimer(context.Context, *SaveTimerRequest) (*SaveTimerResponse, error)
-	GetOpenTimer(context.Context, *GetTimerRequest) (*GetTimerResponse, error)
+	// Запускаем новый таймер
+	StartTimer(context.Context, *StartEndTimerRequest) (*StartEndTimerResponse, error)
+	// Завершаем работу таймера
+	EndTimer(context.Context, *StartEndTimerRequest) (*StartEndTimerResponse, error)
+	// Получаем активный таймер
+	GetWorkingTimer(context.Context, *WorkingTimerRequest) (*WorkingTimerResponse, error)
+	// Изменяет таймер необходимым образом
+	ChangeTimer(context.Context, *ChangeTimerRequest) (*ChangeTimerResponse, error)
+	// Добавляем необходимый таймер
+	AddTimer(context.Context, *AddTimerRequest) (*AddTimerResponse, error)
 	mustEmbedUnimplementedTimerServiceServer()
 }
 
@@ -77,11 +124,20 @@ type TimerServiceServer interface {
 // pointer dereference when methods are called.
 type UnimplementedTimerServiceServer struct{}
 
-func (UnimplementedTimerServiceServer) SaveTimer(context.Context, *SaveTimerRequest) (*SaveTimerResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method SaveTimer not implemented")
+func (UnimplementedTimerServiceServer) StartTimer(context.Context, *StartEndTimerRequest) (*StartEndTimerResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method StartTimer not implemented")
 }
-func (UnimplementedTimerServiceServer) GetOpenTimer(context.Context, *GetTimerRequest) (*GetTimerResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method GetOpenTimer not implemented")
+func (UnimplementedTimerServiceServer) EndTimer(context.Context, *StartEndTimerRequest) (*StartEndTimerResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method EndTimer not implemented")
+}
+func (UnimplementedTimerServiceServer) GetWorkingTimer(context.Context, *WorkingTimerRequest) (*WorkingTimerResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method GetWorkingTimer not implemented")
+}
+func (UnimplementedTimerServiceServer) ChangeTimer(context.Context, *ChangeTimerRequest) (*ChangeTimerResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method ChangeTimer not implemented")
+}
+func (UnimplementedTimerServiceServer) AddTimer(context.Context, *AddTimerRequest) (*AddTimerResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method AddTimer not implemented")
 }
 func (UnimplementedTimerServiceServer) mustEmbedUnimplementedTimerServiceServer() {}
 func (UnimplementedTimerServiceServer) testEmbeddedByValue()                      {}
@@ -104,38 +160,92 @@ func RegisterTimerServiceServer(s grpc.ServiceRegistrar, srv TimerServiceServer)
 	s.RegisterService(&TimerService_ServiceDesc, srv)
 }
 
-func _TimerService_SaveTimer_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(SaveTimerRequest)
+func _TimerService_StartTimer_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(StartEndTimerRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(TimerServiceServer).SaveTimer(ctx, in)
+		return srv.(TimerServiceServer).StartTimer(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: TimerService_SaveTimer_FullMethodName,
+		FullMethod: TimerService_StartTimer_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(TimerServiceServer).SaveTimer(ctx, req.(*SaveTimerRequest))
+		return srv.(TimerServiceServer).StartTimer(ctx, req.(*StartEndTimerRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
 
-func _TimerService_GetOpenTimer_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(GetTimerRequest)
+func _TimerService_EndTimer_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(StartEndTimerRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(TimerServiceServer).GetOpenTimer(ctx, in)
+		return srv.(TimerServiceServer).EndTimer(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: TimerService_GetOpenTimer_FullMethodName,
+		FullMethod: TimerService_EndTimer_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(TimerServiceServer).GetOpenTimer(ctx, req.(*GetTimerRequest))
+		return srv.(TimerServiceServer).EndTimer(ctx, req.(*StartEndTimerRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _TimerService_GetWorkingTimer_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(WorkingTimerRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(TimerServiceServer).GetWorkingTimer(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: TimerService_GetWorkingTimer_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(TimerServiceServer).GetWorkingTimer(ctx, req.(*WorkingTimerRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _TimerService_ChangeTimer_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(ChangeTimerRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(TimerServiceServer).ChangeTimer(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: TimerService_ChangeTimer_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(TimerServiceServer).ChangeTimer(ctx, req.(*ChangeTimerRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _TimerService_AddTimer_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(AddTimerRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(TimerServiceServer).AddTimer(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: TimerService_AddTimer_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(TimerServiceServer).AddTimer(ctx, req.(*AddTimerRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -148,12 +258,24 @@ var TimerService_ServiceDesc = grpc.ServiceDesc{
 	HandlerType: (*TimerServiceServer)(nil),
 	Methods: []grpc.MethodDesc{
 		{
-			MethodName: "SaveTimer",
-			Handler:    _TimerService_SaveTimer_Handler,
+			MethodName: "StartTimer",
+			Handler:    _TimerService_StartTimer_Handler,
 		},
 		{
-			MethodName: "GetOpenTimer",
-			Handler:    _TimerService_GetOpenTimer_Handler,
+			MethodName: "EndTimer",
+			Handler:    _TimerService_EndTimer_Handler,
+		},
+		{
+			MethodName: "GetWorkingTimer",
+			Handler:    _TimerService_GetWorkingTimer_Handler,
+		},
+		{
+			MethodName: "ChangeTimer",
+			Handler:    _TimerService_ChangeTimer_Handler,
+		},
+		{
+			MethodName: "AddTimer",
+			Handler:    _TimerService_AddTimer_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

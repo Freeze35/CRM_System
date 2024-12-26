@@ -4,20 +4,19 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
-	"google.golang.org/grpc/credentials"
 	"io/ioutil"
 )
 
 const (
-	serverCertFile   = "sslkeys/server.pem"
-	serverKeyFile    = "sslkeys/server.key"
-	clientCACertFile = "sslkeys/ca.crt"
+	ServerCertFile   = "sslkeys/server.pem"
+	ServerKeyFile    = "sslkeys/server.key"
+	ClientCACertFile = "sslkeys/ca.crt"
 )
 
 // LoadTLSCredentials загружает TLS-учетные данные для сервера.
-func LoadTLSCredentials() (credentials.TransportCredentials, error) {
+func LoadTLSCredentials() (*tls.Config, error) {
 	// Загрузка сертификата CA сервера
-	pemServerCA, err := ioutil.ReadFile(clientCACertFile)
+	pemServerCA, err := ioutil.ReadFile(ClientCACertFile)
 	if err != nil {
 		return nil, fmt.Errorf("не удалось загрузить сертификат CA сервера: %v", err)
 	}
@@ -29,7 +28,7 @@ func LoadTLSCredentials() (credentials.TransportCredentials, error) {
 	}
 
 	// Загрузка сертификата и закрытого ключа сервера
-	serverCert, err := tls.LoadX509KeyPair(serverCertFile, serverKeyFile)
+	serverCert, err := tls.LoadX509KeyPair(ServerCertFile, ServerKeyFile)
 	if err != nil {
 		return nil, fmt.Errorf("не удалось загрузить сертификат и ключ сервера: %v", err)
 	}
@@ -41,6 +40,5 @@ func LoadTLSCredentials() (credentials.TransportCredentials, error) {
 		ClientCAs:    certPool,                       // Проверка сертификатов клиентов
 	}
 
-	// Возвращаем TLS-настройки для gRPC
-	return credentials.NewTLS(config), nil
+	return config, nil
 }

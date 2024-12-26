@@ -2,8 +2,6 @@ syntax = "proto3";
 
 package protobuff;
 
-import "google/protobuf/timestamp.proto";
-
 option go_package = "./dbservice/;dbservice";
 
 service dbService {
@@ -15,56 +13,16 @@ service dbService {
   rpc SaveMessage(SaveMessageRequest) returns (SaveMessageResponse);
 
   // Запускаем новый таймер
-  rpc  StartTimerDB(StartEndTimerRequest) returns (StartEndTimerResponse);
+  rpc  StartTimerDB(StartEndTimerRequestDB) returns (StartEndTimerResponseDB);
   //Завершаем работу таймера
-  rpc  EndTimer(StartEndTimerRequest) returns (StartEndTimerResponse);
+  rpc  EndTimerDB(StartEndTimerRequestDB) returns (StartEndTimerResponseDB);
   // Получаем активный таймер
-  rpc  GetWorkingTimer(WorkingTimerRequest) returns (WorkingTimerResponse);
+  rpc  GetWorkingTimerDB(WorkingTimerRequestDB) returns (WorkingTimerResponseDB);
   //Изменяет таймер необходимым образом
-  rpc  ChangeTimerDB(ChangeTimerRequest) returns (ChangeTimerResponse);
+  rpc  ChangeTimerDB(ChangeTimerRequestDB) returns (ChangeTimerResponseDB);
   // Добавляем необходимый таймер
-  rpc  AddTimerDB(AddTimerRequest) returns (AddTimerResponse);
+  rpc  AddTimerDB(AddTimerRequestDB) returns (AddTimerResponseDB);
 }
-
-message StartEndTimerRequest{
-  string userId = 1;
-}
-
-message StartEndTimerResponse{
-  string message = 1;
-  uint32 status = 2;
-}
-
-message WorkingTimerRequest{
-  string userId = 1;
-}
-
-message WorkingTimerResponse{
-  google.protobuf.Timestamp start_time = 1; // Время начала отсчёта таймера
-  google.protobuf.Timestamp end_time = 2;   // Время окончания отсчёта таймера (опционально)
-}
-
-message ChangeTimerRequest{
-  string userId = 1;
-  string timerId = 2;
-}
-
-message ChangeTimerResponse{
-  google.protobuf.Timestamp start_time = 1; // Время начала отсчёта таймера
-  google.protobuf.Timestamp end_time = 2;   // Время окончания отсчёта таймера (опционально)
-}
-
-message AddTimerRequest{
-  string userId = 1;
-  string timerId = 2;
-}
-
-message AddTimerResponse{
-  google.protobuf.Timestamp start_time = 1; // Время начала отсчёта таймера
-  google.protobuf.Timestamp end_time = 2;   // Время окончания отсчёта таймера (опционально)
-}
-
-
 
 message RegisterCompanyRequest {
   string nameCompany = 1;
@@ -107,5 +65,70 @@ message SaveMessageRequest {
 message SaveMessageResponse {
   string response = 1;           // Статус успеха
   uint32 status = 2;
+}
+
+//Раздел для работы с таймером
+
+message StartEndTimerRequestDB{
+  string userId = 1;
+  string dbName = 2;
+  string description = 3;
+}
+
+message StartEndTimerResponseDB{
+  string  start_time = 1; // Время начала отсчёта таймера
+  string  end_time = 2;   // Время окончания отсчёта таймера (опционально)
+  uint64  timerId = 3;   // id таймера
+  string message = 4;
+  uint32 status = 5;
+}
+
+message WorkingTimerRequestDB{
+  string userId = 1;
+  string dbName = 2;
+}
+
+message WorkingTimerResponseDB{
+  string  start_time = 1; // Время начала отсчёта таймера
+  string  end_time = 2;   // Время окончания отсчёта таймера (опционально)
+  uint64  timerId = 3;   // id таймера
+  string  message = 4;
+  uint32  status = 5;
+}
+
+message ChangeTimerRequestDB{
+  string userId = 1;
+  string dbName = 2;
+  uint64 timerId = 3;
+}
+
+message ChangeTimerResponseDB{
+  string  start_time = 1; // Время начала отсчёта таймера
+  string  end_time = 2;   // Время окончания отсчёта таймера (опционально)
+  string  duration = 3;   // Время окончания отсчёта таймера (опционально)
+  string  description = 4;   // Время окончания отсчёта таймера (опционально)
+  bool  active = 5;   // Время окончания отсчёта таймера (опционально)
+  uint64 timerId = 6;
+  string message = 7;
+  uint32 status = 8;
+}
+
+message AddTimerRequestDB{
+  string userId = 1;
+  string dbName = 2;
+  string startTime = 3;
+  string endTime = 4;
+  uint64 timerId = 5;
+  string description = 6;
+}
+
+message AddTimerResponseDB{
+  string start_time = 1; // Время начала отсчёта таймера
+  string end_time = 2;   // Время окончания отсчёта таймера (опционально)
+  string duration = 3;
+  string description = 4;
+  uint64 timerId = 5;
+  string message = 6;
+  uint32 status = 7;
 }
 

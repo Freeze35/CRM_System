@@ -15,7 +15,7 @@ RUN apk add --no-cache \
     jansson-dev  # Добавлено для установки Jansson
 
 # Установите переменную окружения для версии NGINX
-ENV NGINX_VERSION=1.27.2
+ENV NGINX_VERSION=1.27.3
 
 # Скачайте и соберите NGINX
 RUN cd /tmp \

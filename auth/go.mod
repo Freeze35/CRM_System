@@ -4,6 +4,7 @@ go 1.23
 
 require (
 	github.com/golang-jwt/jwt/v5 v5.2.1
+	github.com/gorilla/mux v1.8.1
 	github.com/youmark/pkcs8 v0.0.0-20240726163527-a2c0da244d78
 	google.golang.org/grpc v1.68.0
 	google.golang.org/protobuf v1.35.1

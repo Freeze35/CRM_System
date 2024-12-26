@@ -21,7 +21,8 @@ COPY ./auth/.env .env
 COPY ./rootca/ca.crt ./sslkeys/ca.crt
 
 # Указываем порт для приложения
-EXPOSE ${AUTH_SERVICE_PORT}
+EXPOSE ${AUTH_SERVICE_GRPC_PORT}
+EXPOSE ${AUTH_SERVICE_HTTP_PORT}
 
 # Запускаем приложение
 CMD ["./auth"]

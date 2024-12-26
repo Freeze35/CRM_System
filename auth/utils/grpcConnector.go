@@ -27,7 +27,7 @@ func DbServiceConnector(generateToken bool) (client dbservice.DbServiceClient, e
 	defer cancel()
 
 	// Загружаем корневой сертификат CA
-	caCert, err := ioutil.ReadFile(clientCACertFile)
+	caCert, err := ioutil.ReadFile(ClientCACertFile)
 	if err != nil {
 		fmt.Printf("Не удалось прочитать CA сертификат: %v", err)
 		return nil, err, nil
@@ -38,7 +38,7 @@ func DbServiceConnector(generateToken bool) (client dbservice.DbServiceClient, e
 	caCertPool.AppendCertsFromPEM(caCert)
 
 	// Настраиваем TLS с клиентскими сертификатами и проверкой CA
-	cert, err := tls.LoadX509KeyPair(serverCertFile, serverKeyFile)
+	cert, err := tls.LoadX509KeyPair(ServerCertFile, ServerKeyFile)
 	if err != nil {
 		log.Printf("Не удалось загрузить клиентские сертификаты: %v", err)
 		return nil, err, nil
