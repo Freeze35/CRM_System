@@ -61,6 +61,24 @@ services:
     volumes:
       - redis_data:/data # Хранилище данных Redis
 
+  rabbitmq:
+    image: rabbitmq:3-management
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: adminrmq
+      RABBITMQ_DEFAULT_PASS: passconnectmq
+
+  email-service:
+      build:
+        context: . # Путь к директории с Dockerfile
+        dockerfile: ./email-service/Dockerfile # Указываем Dockerfile
+      depends_on:
+        - rabbitmq
+      ports:
+        - "50051:50051"
+
 volumes:
   db-data:  # Определяем volume db-data
   redis_data:  # Объем данных для Redis

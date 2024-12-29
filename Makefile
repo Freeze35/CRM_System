@@ -43,6 +43,8 @@ proto-timer:
 	protoc --go_out=./timer/proto --go-grpc_out=./timer/proto ./timer/proto/timer.proto
 	protoc --go_out=./dbservice/proto --go-grpc_out=./dbservice/proto ./timer/proto/timer.proto
 
+proto-email-service:
+	protoc --go_out=./email-service/proto --go-grpc_out=./email-service/proto ./email-service/proto/email.proto
 
 #Создать ключи для jwt token (при генерации публичного потребуется ввести пароль создания )
 opensslkeys:
