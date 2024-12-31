@@ -38,20 +38,21 @@ func (s *EmailService) SendEmail(_ context.Context, req *pb.SendEmailRequest) (*
 	message := []byte("Subject: " + subject + "\n\n" + body)
 
 	// Отправка письма в отдельной горутине
-	/*go func() {
+	go func() {
 		err := smtp.SendMail(smtpServer+":"+port, auth, from, to, message)
 		if err != nil {
 			log.Printf("Ошибка при отправке письма: %v", err)
 		}
-	}()*/
-	err := smtp.SendMail(smtpServer+":"+port, auth, from, to, message)
+	}()
+	// Cинхронная отправка
+	/*err := smtp.SendMail(smtpServer+":"+port, auth, from, to, message)
 	if err != nil {
 		log.Printf("Ошибка при отправке письма: %v", err)
-	}
+	}*/
 
 	// Ответ сразу, без ожидания отправки
 	return &pb.SendEmailResponse{
 		Status:  http.StatusOK,
-		Message: "Email is being sent asynchronously",
+		Message: "Сообщение принято в обработку на отправку",
 	}, nil
 }

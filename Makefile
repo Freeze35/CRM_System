@@ -45,7 +45,7 @@ proto-timer:
 
 proto-email-service:
 	protoc --go_out=./email-service/proto --go-grpc_out=./email-service/proto ./email-service/proto/email.proto
-	protoc --go_out=./auth/proto --go-grpc_out=./auth/proto ./email-service/proto/email.proto
+	protoc --go_out=./admin_control/proto --go-grpc_out=./admin_control/proto ./email-service/proto/email.proto
 
 #Создать ключи для jwt token (при генерации публичного потребуется ввести пароль создания )
 opensslkeys:
@@ -71,6 +71,7 @@ auth-ssl:
 	openssl genpkey -algorithm RSA -out ./dbservice/sslkeys/server.key
 	openssl genpkey -algorithm RSA -out ./nginx/sslkeys/server.key
 	openssl genpkey -algorithm RSA -out ./email-service/sslkeys/server.key
+	openssl genpkey -algorithm RSA -out ./admin_control/sslkeys/server.key
 
 # Создание запроса на сертификат для сервера
 4_server-sslcert:
@@ -78,6 +79,7 @@ auth-ssl:
 	openssl req -new -key ./dbservice/sslkeys/server.key -out ./dbservice/sslkeys/server.csr -config ./rootca/ssl.cnf
 	openssl req -new -key ./nginx/sslkeys/server.key -out ./nginx/sslkeys/server.csr -config ./rootca/ssl.cnf
 	openssl req -new -key ./email-service/sslkeys/server.key -out ./email-service/sslkeys/server.csr -config ./rootca/ssl.cnf
+	openssl req -new -key ./admin_control/sslkeys/server.key -out ./admin_control/sslkeys/server.csr -config ./rootca/ssl.cnf
 
 # Подпись сертификата сервера через CA
 5_trusted-sslcacert:
@@ -85,3 +87,4 @@ auth-ssl:
 	openssl x509 -req -in ./dbservice/sslkeys/server.csr -CA ./rootca/ca.crt -CAkey ./rootca/ca.key -CAcreateserial -out ./dbservice/sslkeys/server.pem -days 3650 -sha256 -extfile ./rootca/ssl.cnf -extensions req_ext
 	openssl x509 -req -in ./nginx/sslkeys/server.csr -CA ./rootca/ca.crt -CAkey ./rootca/ca.key -CAcreateserial -out ./nginx/sslkeys/server.pem -days 3650 -sha256 -extfile ./rootca/ssl.cnf -extensions req_ext
 	openssl x509 -req -in ./email-service/sslkeys/server.csr -CA ./rootca/ca.crt -CAkey ./rootca/ca.key -CAcreateserial -out ./email-service/sslkeys/server.pem -days 3650 -sha256 -extfile ./rootca/ssl.cnf -extensions req_ext
+	openssl x509 -req -in ./admin_control/sslkeys/server.csr -CA ./rootca/ca.crt -CAkey ./rootca/ca.key -CAcreateserial -out ./admin_control/sslkeys/server.pem -days 3650 -sha256 -extfile ./rootca/ssl.cnf -extensions req_ext

@@ -22,6 +22,17 @@ services:
     ports:
       - "50055:50055"
 
+  admin_control:
+    build:
+      context: .
+      dockerfile: ./admin_control/Dockerfile
+    env_file:
+      - ./admin_control/.env
+    depends_on:
+      - db
+    ports:
+      - "50070:50070"
+
   dbservice:
     build:
       context: .

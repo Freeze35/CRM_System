@@ -3,7 +3,6 @@ package transport_rest
 import (
 	"context"
 	"crmSystem/proto/dbservice"
-	"crmSystem/proto/email-service"
 	"crmSystem/transport_rest/types"
 	"crmSystem/utils"
 	"encoding/json"
@@ -34,7 +33,6 @@ func (h *Handler) InitRouter() *mux.Router {
 	books := r.PathPrefix("/auth").Subrouter()
 	{
 		books.HandleFunc("/login", h.Login).Methods(http.MethodPost)
-		books.HandleFunc("/callmail", h.CallMail).Methods(http.MethodPost)
 		books.HandleFunc("/register", h.Register).Methods(http.MethodPost)
 		/*books.HandleFunc("/{id:[0-9]+}", h.getBookByID).Methods(http.MethodGet)
 		books.HandleFunc("/{id:[0-9]+}", h.deleteBook).Methods(http.MethodDelete)
@@ -42,64 +40,6 @@ func (h *Handler) InitRouter() *mux.Router {
 	}
 
 	return r
-}
-
-func (h *Handler) CallMail(w http.ResponseWriter, r *http.Request) {
-	// Устанавливаем соединение с gRPC сервером mailService
-	client, err, conn := utils.GRPCServiceConnector(true, email.NewEmailServiceClient)
-	defer conn.Close()
-
-	var req types.SendEmailRequest
-	decoder := json.NewDecoder(r.Body)
-	if err := decoder.Decode(&req); err != nil {
-		http.Error(w, "Ошибка при декодировании данных", http.StatusBadRequest)
-		return
-	}
-
-	response, err := sendToEmailUser(client, &req)
-	if err != nil {
-		utils.WriteError(w, http.StatusInternalServerError, err)
-		return
-	}
-
-	// Если валидация прошла успешно, выводим данные
-	if err := utils.WriteJSON(w, response.Status, response); err != nil {
-		utils.WriteError(w, http.StatusInternalServerError, err)
-	}
-
-	if err != nil {
-		response := &types.SendEmailResponse{
-			Message: "Не удалось отправить сообщение: " + err.Error(),
-			Status:  http.StatusInternalServerError,
-		}
-		if err := utils.WriteJSON(w, response.Status, response); err != nil {
-			utils.WriteError(w, http.StatusInternalServerError, err)
-		}
-		return
-	}
-}
-
-func sendToEmailUser(client email.EmailServiceClient, req *types.SendEmailRequest) (response *email.SendEmailResponse, err error) {
-	// Выполняем gRPC вызов RegisterCompany
-
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
-	defer cancel()
-
-	// Формируем запрос на регистрацию компании
-	reqMail := &email.SendEmailRequest{
-		Recipient: req.Recipient,
-		Subject:   req.Subject,
-		Body:      req.Body,
-	}
-
-	resDB, err := client.SendEmail(ctx, reqMail)
-
-	response = &email.SendEmailResponse{
-		Message: resDB.Message,
-		Status:  resDB.Status,
-	}
-
-	return response, err
 }
 
 func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
