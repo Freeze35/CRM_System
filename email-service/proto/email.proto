@@ -1,6 +1,6 @@
 syntax = "proto3";
 
-package email;
+package protobuff;
 
 option go_package = "./email-service/;email";
 
@@ -15,6 +15,6 @@ message SendEmailRequest {
 }
 
 message SendEmailResponse {
-  string status = 1;
+  uint32 status = 1;
   string message = 2;
 }

@@ -106,7 +106,6 @@ func callRegisterCompany(client dbservice.DbServiceClient, req *auth.RegisterAut
 
 // Register Реализация метода Register, для регистрации организации и пользователя как администратора
 func (s *AuthServiceServer) Register(ctx context.Context, req *auth.RegisterAuthRequest) (*auth.RegisterAuthResponse, error) {
-	log.Printf("Получен запрос на регистрацию пользователя: %v", req.Email)
 
 	//dbServicePath := os.Getenv("DB_SERVER_URL") //Требуется поменять соединение в случае,
 	//разделения на отдельные докер соединения (то есть без docker-compose)
@@ -116,7 +115,7 @@ func (s *AuthServiceServer) Register(ctx context.Context, req *auth.RegisterAuth
 	defer cancel()*/
 
 	// Устанавливаем соединение с gRPC сервером dbService
-	client, err, conn := utils.DbServiceConnector(true)
+	client, err, conn := utils.GRPCServiceConnector(true, dbservice.NewDbServiceClient)
 	defer conn.Close()
 	if err != nil {
 		log.Printf("Не удалось подключиться к серверу: %v", err)
@@ -216,7 +215,7 @@ func loginUser(client dbservice.DbServiceClient, req *auth.LoginAuthRequest) (re
 func (s *AuthServiceServer) Login(_ context.Context, req *auth.LoginAuthRequest) (*auth.LoginAuthResponse, error) {
 
 	// Устанавливаем соединение с gRPC сервером dbService
-	client, err, conn := utils.DbServiceConnector(true)
+	client, err, conn := utils.GRPCServiceConnector(true, dbservice.NewDbServiceClient)
 	defer conn.Close()
 
 	if err != nil {

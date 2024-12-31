@@ -2,24 +2,34 @@ package utils
 
 import (
 	"context"
-	"crmSystem/proto/dbservice"
 	"crypto/tls"
 	"crypto/x509"
-	"fmt"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"io/ioutil"
 	"log"
+	"os"
 	"time"
 )
 
-// Добавим функцию генерации токена и установим его в gRPC-запрос
-func DbServiceConnector(generateToken bool) (client dbservice.DbServiceClient, err error, conn *grpc.ClientConn) {
+// GRPCServiceConnector создает gRPC-соединение с сервером через указанного прокси-коннектора,
+// используя TLS для защиты соединения и, при необходимости, добавляя JWT-аутентификацию.
+// Функция универсальна для создания клиентов различных gRPC сервисов.
+//
+// Параметры:
+// - generateToken (bool): Указывает, нужно ли генерировать JWT токен для аутентификации.
+// - clientFactory (func(grpc.ClientConnInterface) T): Фабричная функция для создания клиента gRPC-сервиса.
+//
+// Возвращает:
+// - client (T): Экземпляр клиента gRPC сервиса.
+// - err (error): Ошибка, если возникла проблема при настройке соединения.
+// - conn (*grpc.ClientConn): Установленное gRPC соединение, которое следует закрыть после использования.
+func GRPCServiceConnector[T any](generateToken bool, clientFactory func(grpc.ClientConnInterface) T) (client T, err error, conn *grpc.ClientConn) {
 	// Генерация JWT-токена
 	token, err := JwtGenerate()
 	if err != nil {
 		log.Printf("Не удалось сгенерировать JWT: %v", err)
-		return nil, err, nil
+		return
 	}
 
 	// Создаем контекст с таймаутом
@@ -29,8 +39,8 @@ func DbServiceConnector(generateToken bool) (client dbservice.DbServiceClient, e
 	// Загружаем корневой сертификат CA
 	caCert, err := ioutil.ReadFile(ClientCACertFile)
 	if err != nil {
-		fmt.Printf("Не удалось прочитать CA сертификат: %v", err)
-		return nil, err, nil
+		log.Printf("Не удалось прочитать CA сертификат: %v", err)
+		return
 	}
 
 	// Создаем пул корневых сертификатов и добавляем CA сертификат
@@ -41,7 +51,7 @@ func DbServiceConnector(generateToken bool) (client dbservice.DbServiceClient, e
 	cert, err := tls.LoadX509KeyPair(ServerCertFile, ServerKeyFile)
 	if err != nil {
 		log.Printf("Не удалось загрузить клиентские сертификаты: %v", err)
-		return nil, err, nil
+		return
 	}
 
 	creds := credentials.NewTLS(&tls.Config{
@@ -50,21 +60,23 @@ func DbServiceConnector(generateToken bool) (client dbservice.DbServiceClient, e
 		InsecureSkipVerify: false,
 	})
 
-	//Стандартная опция для привязки ssl и проврка на генерецию токена
+	// Стандартная опция для привязки SSL и проверка на генерацию токена
 	opts := []grpc.DialOption{grpc.WithTransportCredentials(creds)}
-	if generateToken == true {
+	if generateToken {
 		opts = append(opts, grpc.WithPerRPCCredentials(jwtTokenAuth{token}), grpc.WithBlock())
 	}
 
-	// Настраиваем gRPC соединение с передачей JWT-токена
-	conn, err = grpc.DialContext(ctx, "nginx:443", opts...)
+	proxyConnection := os.Getenv("GRPC_PROXY_CONNECTOR")
+
+	// Настраиваем gRPC соединение
+	conn, err = grpc.DialContext(ctx, proxyConnection, opts...)
 	if err != nil {
 		log.Printf("Не удалось подключиться к серверу: %v", err)
-		return nil, err, conn
+		return
 	}
 
-	fmt.Println("Успешное подключение DbServiceConnector к gRPC серверу через NGINX с TLS")
-	return dbservice.NewDbServiceClient(conn), nil, conn
+	client = clientFactory(conn)
+	return
 }
 
 // jwtTokenAuth структура для установки JWT токена в качестве аутентификационных данных для gRPC

@@ -1,6 +1,7 @@
 package utils
 
 import (
+	"crmSystem/transport_rest/types"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -22,4 +23,18 @@ func ParseJSON(r *http.Request, v any) error {
 	}
 
 	return json.NewDecoder(r.Body).Decode(v)
+}
+
+func CreateError(w http.ResponseWriter, status uint32, v string, err error) {
+	w.Header().Add("Content-Type", "application/json")
+	w.WriteHeader(int(status))
+	response := types.ErrorResponse{
+		Message: fmt.Errorf("%s: %v", v, err).Error(),
+		Status:  http.StatusBadRequest,
+	}
+
+	encodeErr := json.NewEncoder(w).Encode(response)
+	if err != nil {
+		fmt.Printf("Ошибка при отправке JSON-ответа: %v\n", encodeErr)
+	}
 }

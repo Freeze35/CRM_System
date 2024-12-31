@@ -4,6 +4,7 @@
     <inspection_tool class="GoDfaErrorMayBeNotNil" enabled="true" level="WARNING" enabled_by_default="true">
       <methods>
         <method importPath="crmSystem/proto/redis" receiver="RedisServiceClient" name="Get" />
+        <method importPath="crmSystem/proto/email-service" receiver="EmailServiceClient" name="SendEmail" />
       </methods>
     </inspection_tool>
   </profile>

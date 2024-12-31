@@ -8,23 +8,23 @@ import (
 // Регулярное выражение для проверки email
 var emailRegex = regexp.MustCompile(`^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}$`)
 
-// Валидация email
-func validateEmail(fl validator.FieldLevel) bool {
-	email := fl.Field().String()
-	if email == "" {
-		return false // Пустое значение невалидно
-	}
-	return emailRegex.MatchString(email)
-}
-
 // Кастомный валидатор для phone
 func validatePhone(fl validator.FieldLevel) bool {
 	phone := fl.Field().String()
+
+	// Если поле пустое, оно считается валидным (можно изменить по необходимости)
 	if phone == "" {
-		return true // Если поле пустое, оно считается валидным
+		return true
 	}
 
-	// Простая проверка на длину или формат (например, только цифры)
-	// Здесь можно добавить вашу логику проверки
-	return len(phone) >= 10 && len(phone) <= 15
+	// Регулярное выражение для проверки, что строка состоит только из цифр и длина от 10 до 15
+	re := regexp.MustCompile(`^[0-9]{10,15}$`)
+
+	// Проверка по регулярному выражению
+	return re.MatchString(phone)
+}
+
+func validatePassword(fl validator.FieldLevel) bool {
+	password := fl.Field().String()
+	return len(password) >= 8 // Проверяем минимальную длину
 }

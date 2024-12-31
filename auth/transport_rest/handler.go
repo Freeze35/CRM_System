@@ -3,6 +3,7 @@ package transport_rest
 import (
 	"context"
 	"crmSystem/proto/dbservice"
+	"crmSystem/proto/email-service"
 	"crmSystem/transport_rest/types"
 	"crmSystem/utils"
 	"encoding/json"
@@ -33,7 +34,8 @@ func (h *Handler) InitRouter() *mux.Router {
 	books := r.PathPrefix("/auth").Subrouter()
 	{
 		books.HandleFunc("/login", h.Login).Methods(http.MethodPost)
-		books.HandleFunc("/authin", h.AuthIn).Methods(http.MethodGet)
+		books.HandleFunc("/callmail", h.CallMail).Methods(http.MethodPost)
+		books.HandleFunc("/register", h.Register).Methods(http.MethodPost)
 		/*books.HandleFunc("/{id:[0-9]+}", h.getBookByID).Methods(http.MethodGet)
 		books.HandleFunc("/{id:[0-9]+}", h.deleteBook).Methods(http.MethodDelete)
 		books.HandleFunc("/{id:[0-9]+}", h.updateBook).Methods(http.MethodPut)*/
@@ -42,34 +44,65 @@ func (h *Handler) InitRouter() *mux.Router {
 	return r
 }
 
-func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
-	//id, err := getIdFromRequest(r)
-	/*if err != nil {
-		log.Println("getBookByID() error:", err)
-		w.WriteHeader(http.StatusBadRequest)
+func (h *Handler) CallMail(w http.ResponseWriter, r *http.Request) {
+	// Устанавливаем соединение с gRPC сервером mailService
+	client, err, conn := utils.GRPCServiceConnector(true, email.NewEmailServiceClient)
+	defer conn.Close()
+
+	var req types.SendEmailRequest
+	decoder := json.NewDecoder(r.Body)
+	if err := decoder.Decode(&req); err != nil {
+		http.Error(w, "Ошибка при декодировании данных", http.StatusBadRequest)
 		return
 	}
 
-	book, err := h.booksService.GetByID(context.TODO(), id)
+	response, err := sendToEmailUser(client, &req)
 	if err != nil {
-		if errors.Is(err, domain.ErrBookNotFound) {
-			w.WriteHeader(http.StatusBadRequest)
-			return
+		utils.WriteError(w, http.StatusInternalServerError, err)
+		return
+	}
+
+	// Если валидация прошла успешно, выводим данные
+	if err := utils.WriteJSON(w, response.Status, response); err != nil {
+		utils.WriteError(w, http.StatusInternalServerError, err)
+	}
+
+	if err != nil {
+		response := &types.SendEmailResponse{
+			Message: "Не удалось отправить сообщение: " + err.Error(),
+			Status:  http.StatusInternalServerError,
 		}
-
-		log.Println("getBookByID() error:", err)
-		w.WriteHeader(http.StatusInternalServerError)
+		if err := utils.WriteJSON(w, response.Status, response); err != nil {
+			utils.WriteError(w, http.StatusInternalServerError, err)
+		}
 		return
 	}
+}
 
-	response, err := json.Marshal(book)
-	if err != nil {
-		log.Println("getBookByID() error:", err)
-		w.WriteHeader(http.StatusInternalServerError)
-		return
+func sendToEmailUser(client email.EmailServiceClient, req *types.SendEmailRequest) (response *email.SendEmailResponse, err error) {
+	// Выполняем gRPC вызов RegisterCompany
+
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
+	defer cancel()
+
+	// Формируем запрос на регистрацию компании
+	reqMail := &email.SendEmailRequest{
+		Recipient: req.Recipient,
+		Subject:   req.Subject,
+		Body:      req.Body,
 	}
 
-	w.Header().Add("Content-Type", "application/json")*/
+	resDB, err := client.SendEmail(ctx, reqMail)
+
+	response = &email.SendEmailResponse{
+		Message: resDB.Message,
+		Status:  resDB.Status,
+	}
+
+	return response, err
+}
+
+func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	var req types.LoginAuthRequest
 	decoder := json.NewDecoder(r.Body)
 	if err := decoder.Decode(&req); err != nil {
@@ -81,27 +114,34 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	validate := validator.New()
 
 	// Регистрируем кастомные валидаторы
-	err := validate.RegisterValidation("custom_email", validateEmail)
+	err := validate.RegisterValidation("phone", validatePhone)
 	if err != nil {
-		http.Error(w, "Ошибка проверки имени почты", http.StatusBadRequest)
+		utils.CreateError(w, http.StatusBadRequest, "Ошибка проверки номера телефона", err)
 		return
 	}
-	err = validate.RegisterValidation("custom_phone", validatePhone)
+
+	// Регистрируем кастомный валидатор для пароля
+	err = validate.RegisterValidation("password", validatePassword)
 	if err != nil {
-		http.Error(w, "Ошибка проверки имени номера телефона", http.StatusBadRequest)
+		utils.CreateError(w, http.StatusBadRequest, "Ошибка при проверке пароля", err)
 		return
 	}
 
 	// Валидация структуры
-	err = validate.Struct(types.LoginAuthRequest{})
+	err = validate.Struct(req) // Исправление: используем req, а не пустую структуру
 	if err != nil {
-		// Если есть ошибки валидации
-		http.Error(w, fmt.Sprintf("Ошибка валидации: %v", err), http.StatusBadRequest)
-		return
+		// Если есть ошибки валидации, разбираем их и сразу отправляем ошибку
+		validationErrors := err.(validator.ValidationErrors)
+		for _, e := range validationErrors {
+			// Немедленно возвращаем ошибку для каждого поля с ошибкой валидации
+			errorMessage := fmt.Sprintf("Поле '%s' не прошло валидацию", e.Field())
+			utils.CreateError(w, http.StatusBadRequest, "Ошибка валидации", fmt.Errorf(errorMessage))
+			return
+		}
 	}
 
 	// Устанавливаем соединение с gRPC сервером dbService
-	client, err, conn := utils.DbServiceConnector(true)
+	client, err, conn := utils.GRPCServiceConnector(true, dbservice.NewDbServiceClient)
 	defer conn.Close()
 
 	if err != nil {
@@ -113,7 +153,7 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 			Status:        http.StatusInternalServerError,
 		}
 		if err := utils.WriteJSON(w, response.Status, response); err != nil {
-			utils.WriteError(w, http.StatusInternalServerError, err)
+			utils.CreateError(w, http.StatusInternalServerError, "Не корректная ошибка на сервере", err)
 		}
 		return
 	}
@@ -121,13 +161,13 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	// Проводим авторизацию пользователя с запросом к dbservice
 	response, err := loginUser(client, &req)
 	if err != nil {
-		utils.WriteError(w, http.StatusInternalServerError, err)
+		utils.CreateError(w, http.StatusInternalServerError, "Не корректная ошибка на сервере", err)
 		return
 	}
 
-	// Если валидация прошла успешно, выводим данные
+	// Если авторизация прошла успешно, выводим данные
 	if err := utils.WriteJSON(w, response.Status, response); err != nil {
-		utils.WriteError(w, http.StatusInternalServerError, err)
+		utils.CreateError(w, http.StatusInternalServerError, "Не корректная ошибка на сервере", err)
 	}
 }
 
@@ -197,36 +237,149 @@ func loginUser(client dbservice.DbServiceClient, req *types.LoginAuthRequest) (r
 
 }
 
-func (h *Handler) AuthIn(w http.ResponseWriter, r *http.Request) {
-	log.Printf("Restro")
-	response, _ := json.Marshal("dd")
-	w.Write(response)
-	/*id, err := getIdFromRequest(r)
-	if err != nil {
-		log.Println("getBookByID() error:", err)
-		w.WriteHeader(http.StatusBadRequest)
+func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
+	// Максимальное ожидание ответа при ожидании регистрации 10 секунд
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
+	defer cancel()
+
+	var req types.RegisterAuthRequest
+	decoder := json.NewDecoder(r.Body)
+	if err := decoder.Decode(&req); err != nil {
+		utils.CreateError(w, http.StatusBadRequest, "Ошибка при декодировании данных", err)
+
 		return
 	}
 
-	book, err := h.booksService.GetByID(context.TODO(), id)
+	// Создаем валидатор
+	validate := validator.New()
+
+	// Регистрируем кастомный валидатор для пароля
+	err := validate.RegisterValidation("password", validatePassword)
 	if err != nil {
-		if errors.Is(err, domain.ErrBookNotFound) {
-			w.WriteHeader(http.StatusBadRequest)
+		utils.CreateError(w, http.StatusBadRequest, "Ошибка при проверке пароля", err)
+		return
+	}
+
+	err = validate.RegisterValidation("phone", validatePhone)
+	if err != nil {
+		utils.CreateError(w, http.StatusInternalServerError, "Ошибка регистрации кастомного валидатора", err)
+		return
+	}
+
+	// Валидация структуры
+	err = validate.Struct(req) // Исправление: используем req, а не пустую структуру
+	if err != nil {
+		// Если есть ошибки валидации, разбираем их и сразу отправляем ошибку
+		validationErrors := err.(validator.ValidationErrors)
+		for _, e := range validationErrors {
+			// Немедленно возвращаем ошибку для каждого поля с ошибкой валидации
+			errorMessage := fmt.Sprintf("Поле '%s' не прошло валидацию", e.Field())
+			utils.CreateError(w, http.StatusBadRequest, "Ошибка валидации", fmt.Errorf(errorMessage))
 			return
 		}
-
-		log.Println("getBookByID() error:", err)
-		w.WriteHeader(http.StatusInternalServerError)
-		return
 	}
 
-	response, err := json.Marshal(book)
+	// Устанавливаем соединение с gRPC сервером dbService
+	client, err, conn := utils.GRPCServiceConnector(true, dbservice.NewDbServiceClient)
 	if err != nil {
-		log.Println("getBookByID() error:", err)
-		w.WriteHeader(http.StatusInternalServerError)
+		utils.CreateError(w, http.StatusInternalServerError, "Ошибка подключения к gRPC серверу", err)
+		return
+	}
+	defer conn.Close()
+
+	// Вызываем метод регистрации компании через gRPC
+	response, err := callRegisterCompany(client, &req, ctx)
+	if err != nil {
+		utils.CreateError(w, http.StatusInternalServerError, "Ошибка регистрации компании", err)
 		return
 	}
 
-	w.Header().Add("Content-Type", "application/json")
-	w.Write(response)*/
+	// Если запрос успешно выполнен, возвращаем JSON-ответ
+	if err := utils.WriteJSON(w, response.Status, response); err != nil {
+		utils.CreateError(w, http.StatusInternalServerError, "Ошибка записи ответа", err)
+	}
+}
+
+func callRegisterCompany(client dbservice.DbServiceClient, req *types.RegisterAuthRequest, ctx context.Context) (response *types.RegisterAuthResponse, err error) {
+
+	// Создаем контекст с тайм-аутом для запроса
+	// В случае превышения порога ожидания с сервера в 10 секунд будет ошибка контекста.
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
+	defer cancel()
+
+	// Формируем запрос на регистрацию компании
+	req1 := &dbservice.RegisterCompanyRequest{
+		NameCompany: req.NameCompany,
+		Address:     req.Address,
+		Email:       req.Email,
+		Phone:       req.Phone,
+		Password:    req.Password,
+	}
+
+	// Выполняем gRPC вызов RegisterCompany
+	resDB, err := client.RegisterCompany(ctx, req1)
+	if err != nil {
+
+		//Проверка на ошибку не авторизованного JWT запроса
+		authCheck := strings.Contains(err.Error(), "401")
+		var message string
+		var status uint32
+		if authCheck {
+			message = "Пользователь не предоставил авторизационный JWT токен. Ошибка 401"
+			status = http.StatusUnauthorized
+		} else {
+			message = err.Error()
+			status = http.StatusInternalServerError
+		}
+
+		response := &types.RegisterAuthResponse{
+			Message:       "Внутреняя ошибка регистрации: " + message,
+			Database:      "",
+			UserCompanyId: "",
+			Token:         "",
+			Status:        status,
+		}
+
+		log.Printf("Ошибка при вызове RegisterCompany: %v", err)
+		return response, nil
+	}
+
+	/*// Обрабатываем ответ
+	log.Printf("Ответ сервера: Message: %s, Database: %s, Status: %d", res.GetMessage(), res.GetDatabase(), res.GetStatus())*/
+
+	if resDB.Status == http.StatusOK {
+		// Пример успешного ответа с генерированным токеном
+		token, err := utils.JwtGenerate()
+		if err != nil {
+
+			fmt.Sprintf("Ошибка генерации токена: %s", err)
+			response := &types.RegisterAuthResponse{
+				Message:       resDB.Message,
+				Database:      resDB.Database,
+				UserCompanyId: resDB.UserCompanyId,
+				Token:         "",
+				Status:        http.StatusOK,
+			}
+			return response, nil
+		} else {
+			response := &types.RegisterAuthResponse{
+				Message:       resDB.Message,
+				Database:      resDB.Database,
+				UserCompanyId: resDB.UserCompanyId,
+				Token:         token,
+				Status:        http.StatusOK,
+			}
+			return response, nil
+		}
+
+	} else {
+		response := &types.RegisterAuthResponse{
+			Message:       "Внутренняя ошибка создания компании : " + resDB.Message,
+			Database:      "",
+			UserCompanyId: "",
+			Token:         "",
+			Status:        resDB.Status,
+		}
+		return response, nil
+	}
 }

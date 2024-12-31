@@ -3,10 +3,10 @@ package types
 type RegisterAuthRequest struct {
 	Email       string `json:"email" validate:"required,email"`
 	Phone       string `json:"phone" validate:"omitempty,phone"`
-	Password    string `json:"password" validate:"required,password"`
-	NameCompany string `json:"nameCompany" validate:"required"`
-	Address     string `json:"address" validate:"required"`
-	CompanyDb   string `json:"company_db" validate:"required"`
+	Password    string `json:"password"`
+	NameCompany string `json:"nameCompany"`
+	Address     string `json:"address"`
+	CompanyDb   string `json:"company_db"`
 }
 
 type RegisterAuthResponse struct {
@@ -29,4 +29,20 @@ type LoginAuthResponse struct {
 	UserCompanyId string `json:"userCompanyId"`
 	Token         string `json:"token"`
 	Status        uint32 `json:"status"`
+}
+
+type SendEmailRequest struct {
+	Recipient string `json:"recipient"`
+	Subject   string `json:"subject"`
+	Body      string `json:"body"`
+}
+
+type SendEmailResponse struct {
+	Message string `json:"message"`
+	Status  uint32 `json:"status"`
+}
+
+type ErrorResponse struct {
+	Message string `json:"message"`
+	Status  uint32 `json:"status"`
 }
