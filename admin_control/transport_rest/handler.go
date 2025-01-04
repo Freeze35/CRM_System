@@ -41,6 +41,7 @@ func (h *Handler) InitRouter() *mux.Router {
 
 func (h *Handler) AddUser(w http.ResponseWriter, r *http.Request) {
 
+	// TODO Добавить привязку с взаимаосвязанным добавлением мультипользователей
 	// Устанавливаем соединение с gRPC сервером mailService
 	client, err, conn := utils.GRPCServiceConnector(true, email.NewEmailServiceClient)
 	defer conn.Close()
@@ -99,9 +100,9 @@ func sendToEmailUser(client email.EmailServiceClient, req *types.SendEmailReques
 
 	// Формируем запрос на регистрацию компании
 	reqMail := &email.SendEmailRequest{
-		Recipient: req.Recipient,
-		Subject:   req.Subject,
-		Body:      req.Body,
+		Email:   req.Email,
+		Message: req.Message,
+		Body:    req.Body,
 	}
 
 	resDB, err := client.SendEmail(ctx, reqMail)

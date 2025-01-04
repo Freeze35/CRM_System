@@ -2,7 +2,7 @@ package transport_rest
 
 import (
 	"context"
-	"crmSystem/proto/dbservice"
+	"crmSystem/proto/dbauth"
 	"crmSystem/transport_rest/types"
 	"crmSystem/utils"
 	"encoding/json"
@@ -81,7 +81,7 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Устанавливаем соединение с gRPC сервером dbService
-	client, err, conn := utils.GRPCServiceConnector(true, dbservice.NewDbServiceClient)
+	client, err, conn := utils.GRPCServiceConnector(true, dbauth.NewDbAuthServiceClient)
 	defer conn.Close()
 
 	if err != nil {
@@ -111,10 +111,10 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func loginUser(client dbservice.DbServiceClient, req *types.LoginAuthRequest) (response *types.LoginAuthResponse, err error) {
+func loginUser(client dbauth.DbAuthServiceClient, req *types.LoginAuthRequest) (response *types.LoginAuthResponse, err error) {
 
 	// Формируем запрос на регистрацию компании
-	reqLogin := &dbservice.LoginDBRequest{
+	reqLogin := &dbauth.LoginDBRequest{
 		Email:    req.Email,
 		Phone:    req.Phone,
 		Password: req.Password,
@@ -153,9 +153,8 @@ func loginUser(client dbservice.DbServiceClient, req *types.LoginAuthRequest) (r
 
 	//Получен ответ о логинизации от dbservice
 	token, err := utils.JwtGenerate()
-	if err != nil {
+	if err != nil || resDB.Status != http.StatusOK {
 
-		fmt.Printf("Ошибка генерации токена: %s", err)
 		response = &types.LoginAuthResponse{
 			Message:       resDB.Message,
 			Database:      resDB.Database,
@@ -220,7 +219,7 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Устанавливаем соединение с gRPC сервером dbService
-	client, err, conn := utils.GRPCServiceConnector(true, dbservice.NewDbServiceClient)
+	client, err, conn := utils.GRPCServiceConnector(true, dbauth.NewDbAuthServiceClient)
 	if err != nil {
 		utils.CreateError(w, http.StatusInternalServerError, "Ошибка подключения к gRPC серверу", err)
 		return
@@ -240,7 +239,7 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func callRegisterCompany(client dbservice.DbServiceClient, req *types.RegisterAuthRequest, ctx context.Context) (response *types.RegisterAuthResponse, err error) {
+func callRegisterCompany(client dbauth.DbAuthServiceClient, req *types.RegisterAuthRequest, ctx context.Context) (response *types.RegisterAuthResponse, err error) {
 
 	// Создаем контекст с тайм-аутом для запроса
 	// В случае превышения порога ожидания с сервера в 10 секунд будет ошибка контекста.
@@ -248,7 +247,7 @@ func callRegisterCompany(client dbservice.DbServiceClient, req *types.RegisterAu
 	defer cancel()
 
 	// Формируем запрос на регистрацию компании
-	req1 := &dbservice.RegisterCompanyRequest{
+	req1 := &dbauth.RegisterCompanyRequest{
 		NameCompany: req.NameCompany,
 		Address:     req.Address,
 		Email:       req.Email,
@@ -290,9 +289,8 @@ func callRegisterCompany(client dbservice.DbServiceClient, req *types.RegisterAu
 	if resDB.Status == http.StatusOK {
 		// Пример успешного ответа с генерированным токеном
 		token, err := utils.JwtGenerate()
-		if err != nil {
+		if err != nil || resDB.Status != http.StatusOK {
 
-			fmt.Sprintf("Ошибка генерации токена: %s", err)
 			response := &types.RegisterAuthResponse{
 				Message:       resDB.Message,
 				Database:      resDB.Database,
@@ -314,7 +312,7 @@ func callRegisterCompany(client dbservice.DbServiceClient, req *types.RegisterAu
 
 	} else {
 		response := &types.RegisterAuthResponse{
-			Message:       "Внутренняя ошибка создания компании : " + resDB.Message,
+			Message:       resDB.Message,
 			Database:      "",
 			UserCompanyId: "",
 			Token:         "",

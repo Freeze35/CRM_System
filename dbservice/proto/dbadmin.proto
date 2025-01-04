@@ -1,0 +1,37 @@
+syntax = "proto3";
+
+package protobuff;
+
+option go_package = "./dbadmin/;dbadmin";
+
+service dbAdminService {
+  // Метод для регистрации пользователя в компании
+  rpc registerUsersInCompany (RegisterUsersRequest) returns (RegisterUsersResponse);
+}
+
+message User {
+  string email = 1;
+  string phone = 2;
+  string roleId = 3;
+}
+message UserResponse {
+  string email = 1;
+  string phone = 2;
+  string roleId = 3;
+  string password = 4;
+}
+
+// Сообщение для массовой регистрации пользователей
+message RegisterUsersRequest {
+  string dbName = 1;
+  string userCompanyId = 2;
+  repeated User users = 3; // Список пользователей для регистрации
+}
+
+// Ответ после массовой регистрации
+message RegisterUsersResponse {
+  repeated UserResponse users = 1; // Список пользователей после регистрации
+  string message = 2;           // Сообщение статуса
+  uint32 status = 3;            // Код состояния HTTP
+}
+

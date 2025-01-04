@@ -2,7 +2,7 @@ package main
 
 import (
 	context "context"
-	"crmSystem/proto/dbservice"
+	"crmSystem/proto/dbtimer"
 	"crmSystem/proto/timer"
 	"crmSystem/utils"
 	"google.golang.org/grpc"
@@ -41,7 +41,7 @@ func (s *TimerServiceServer) StartTimer(ctx context.Context, req *timer.StartEnd
 		return response, err
 	}
 
-	dbReq := &dbservice.StartEndTimerRequestDB{
+	dbReq := &dbtimer.StartEndTimerRequestDB{
 		UserId:      req.UserId,
 		DbName:      req.DbName,
 		Description: req.Description,
@@ -88,7 +88,7 @@ func (s *TimerServiceServer) EndTimer(ctx context.Context, req *timer.StartEndTi
 		return response, err
 	}
 
-	dbReq := &dbservice.StartEndTimerRequestDB{
+	dbReq := &dbtimer.StartEndTimerRequestDB{
 		UserId:      req.UserId,
 		DbName:      req.DbName,
 		Description: req.Description,
@@ -135,7 +135,7 @@ func (s *TimerServiceServer) GetWorkingTimer(ctx context.Context, req *timer.Wor
 		return response, err
 	}
 
-	dbReq := &dbservice.WorkingTimerRequestDB{
+	dbReq := &dbtimer.WorkingTimerRequestDB{
 		UserId: req.UserId,
 		DbName: req.DbName,
 	}
@@ -182,7 +182,7 @@ func (s *TimerServiceServer) ChangeTimer(ctx context.Context, req *timer.ChangeT
 		return response, err
 	}
 
-	dbReq := &dbservice.ChangeTimerRequestDB{
+	dbReq := &dbtimer.ChangeTimerRequestDB{
 		UserId:  req.UserId,
 		DbName:  req.DbName,
 		TimerId: req.TimerId,
@@ -234,7 +234,7 @@ func (s *TimerServiceServer) AddTimer(ctx context.Context, req *timer.AddTimerRe
 		return response, err
 	}
 
-	dbReq := &dbservice.AddTimerRequestDB{
+	dbReq := &dbtimer.AddTimerRequestDB{
 		UserId:      req.UserId,
 		DbName:      req.DbName,
 		StartTime:   req.StartTime,

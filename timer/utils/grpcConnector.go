@@ -2,7 +2,7 @@ package utils
 
 import (
 	"context"
-	"crmSystem/proto/dbservice"
+	"crmSystem/proto/dbtimer"
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
@@ -14,7 +14,7 @@ import (
 )
 
 // Добавим функцию генерации токена и установим его в gRPC-запрос
-func GrpcConnector(token string) (client dbservice.DbServiceClient, err error, conn *grpc.ClientConn) {
+func GrpcConnector(token string) (client dbtimer.DbTimerServiceClient, err error, conn *grpc.ClientConn) {
 	// Генерация JWT-токена
 
 	if err != nil {
@@ -63,7 +63,7 @@ func GrpcConnector(token string) (client dbservice.DbServiceClient, err error, c
 	}
 
 	fmt.Println("Успешное подключение DbServiceConnector к gRPC серверу через NGINX с TLS")
-	return dbservice.NewDbServiceClient(conn), nil, conn
+	return dbtimer.NewDbTimerServiceClient(conn), nil, conn
 }
 
 // jwtTokenAuth структура для установки JWT токена в качестве аутентификационных данных для gRPC
@@ -72,7 +72,7 @@ type jwtTokenAuth struct {
 }
 
 // GetRequestMetadata добавляет JWT-токен в метаданные
-func (j jwtTokenAuth) GetRequestMetadata(ctx context.Context, uri ...string) (map[string]string, error) {
+func (j jwtTokenAuth) GetRequestMetadata(_ context.Context, _ ...string) (map[string]string, error) {
 	return map[string]string{
 		"authorization": "Bearer " + j.token,
 	}, nil

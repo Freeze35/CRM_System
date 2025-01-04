@@ -31,6 +31,19 @@ proto-dbservice:
 	protoc --go_out=./redis/proto --go-grpc_out=./redis/proto ./dbservice/proto/dbservice.proto
 	protoc --go_out=./timer/proto --go-grpc_out=./timer/proto ./dbservice/proto/dbservice.proto
 
+proto-dbauth:
+	protoc --go_out=./dbservice/proto --go-grpc_out=./dbservice/proto ./dbservice/proto/dbauth.proto
+	protoc --go_out=./auth/proto --go-grpc_out=./auth/proto ./dbservice/proto/dbauth.proto
+proto-dbtimer:
+	protoc --go_out=./dbservice/proto --go-grpc_out=./dbservice/proto ./dbservice/proto/dbtimer.proto
+	protoc --go_out=./timer/proto --go-grpc_out=./timer/proto ./dbservice/proto/dbtimer.proto
+proto-dbchat:
+	protoc --go_out=./dbservice/proto --go-grpc_out=./dbservice/proto ./dbservice/proto/dbchat.proto
+	protoc --go_out=./chats/proto --go-grpc_out=./chats/proto ./dbservice/proto/dbchat.proto
+proto-dbadmin:
+	protoc --go_out=./dbservice/proto --go-grpc_out=./dbservice/proto ./dbservice/proto/dbadmin.proto
+	protoc --go_out=./admin_control/proto --go-grpc_out=./admin_control/proto ./dbservice/proto/dbadmin.proto
+
 proto-redis:
 	protoc --go_out=./redis/proto --go-grpc_out=./redis/proto ./redis/proto/redis_service.proto
 	protoc --go_out=./dbservice/proto --go-grpc_out=./dbservice/proto ./redis/proto/redis_service.proto

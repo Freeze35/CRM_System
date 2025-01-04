@@ -1,9 +1,9 @@
 package types
 
 type SendEmailRequest struct {
-	Recipient string `json:"recipient" validate:"required,email"`
-	Subject   string `json:"subject"`
-	Body      string `json:"body"`
+	Email   string `json:"email" validate:"required,email"`
+	Message string `json:"message"`
+	Body    string `json:"body"`
 }
 
 type SendEmailResponse struct {

@@ -31,9 +31,9 @@ func StartConsumer(ch *amqp.Channel, queueName string, emailService *service.Ema
 
 		// Отправляем email
 		resp, err := emailService.SendEmail(ctx, &pb.SendEmailRequest{
-			Recipient: string(msg.Body), // Или другой параметр, в зависимости от структуры вашего сообщения
-			Subject:   "Тема письма",
-			Body:      "Текст письма",
+			Email:   string(msg.Body), // Или другой параметр, в зависимости от структуры вашего сообщения
+			Message: "Тема письма",
+			Body:    "Текст письма",
 		})
 
 		if err != nil {

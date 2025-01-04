@@ -27,9 +27,9 @@ func (s *EmailService) SendEmail(_ context.Context, req *pb.SendEmailRequest) (*
 	from := os.Getenv("USER_SMPT_MAIL")     // ваш email
 
 	// Получатель и содержимое письма
-	to := []string{req.Recipient} // получатель из запроса
-	subject := req.Subject        // тема письма
-	body := req.Body              // тело письма
+	to := []string{req.Email} // получатель из запроса
+	subject := req.Message    // тема письма
+	body := req.Body          // тело письма
 
 	// Настроить аутентификацию
 	auth := smtp.PlainAuth("", username, password, smtpServer)

@@ -32,9 +32,9 @@ type LoginAuthResponse struct {
 }
 
 type SendEmailRequest struct {
-	Recipient string `json:"recipient"`
-	Subject   string `json:"subject"`
-	Body      string `json:"body"`
+	Email   string `json:"recipient"`
+	Message string `json:"message"`
+	Body    string `json:"body"`
 }
 
 type SendEmailResponse struct {

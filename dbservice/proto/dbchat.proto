@@ -1,0 +1,27 @@
+syntax = "proto3";
+
+package protobuff;
+
+option go_package = "./dbchat/;dbchat";
+
+service dbChatService {
+
+  rpc SaveMessage(SaveMessageRequest) returns (SaveMessageResponse);
+
+}
+
+// Сообщение для запроса сохранения сообщения в базе данных
+message SaveMessageRequest {
+  string user_id = 1;         // ID пользователя
+  string chat_id = 2;         // ID чата
+  string message = 3;         // Текст сообщения
+  string dbName = 4;         // Название базы данных
+  int64 created_at = 5;       // Время создания сообщения (timestamp)
+}
+
+// Ответ для подтверждения сохранения сообщения
+message SaveMessageResponse {
+  string response = 1;           // Статус успеха
+  uint32 status = 2;
+}
+
