@@ -143,7 +143,7 @@ func (s AdminServiceServer) RegisterUsersInCompany(ctx context.Context, req *pbA
 		err = tx.QueryRow("SELECT id FROM authusers WHERE email = $1 OR phone = $2", user.Email, user.Phone).Scan(&existingAuthUserId)
 		if err == nil { // Пользователь уже существует
 			var existingUserId string
-			err = txc.QueryRow("SELECT id FROM users WHERE authId = $1 AND company_id = $2", existingAuthUserId, CompanyId).Scan(&existingUserId)
+			err = txc.QueryRow("SELECT id FROM users WHERE authId = $1", existingAuthUserId).Scan(&existingUserId)
 			if err == nil { // Пользователь существует и связан с компанией
 				registeredUsers = append(registeredUsers, &pbAdmin.UserResponse{
 					Email:    user.Email,
