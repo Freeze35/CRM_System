@@ -24,13 +24,6 @@ proto-auth:
 	protoc --go_out=./auth/proto --go-grpc_out=./auth/proto ./auth/proto/auth.proto
 	protoc --go_out=./auth/proto --go-grpc_out=./auth/proto ./dbservice/proto/dbservice.proto
 
-
-proto-dbservice:
-	protoc --go_out=./dbservice/proto --go-grpc_out=./dbservice/proto ./dbservice/proto/dbservice.proto
-	protoc --go_out=./auth/proto --go-grpc_out=./auth/proto ./dbservice/proto/dbservice.proto
-	protoc --go_out=./redis/proto --go-grpc_out=./redis/proto ./dbservice/proto/dbservice.proto
-	protoc --go_out=./timer/proto --go-grpc_out=./timer/proto ./dbservice/proto/dbservice.proto
-
 proto-dbauth:
 	protoc --go_out=./dbservice/proto --go-grpc_out=./dbservice/proto ./dbservice/proto/dbauth.proto
 	protoc --go_out=./auth/proto --go-grpc_out=./auth/proto ./dbservice/proto/dbauth.proto

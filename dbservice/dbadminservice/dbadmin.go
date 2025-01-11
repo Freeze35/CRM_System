@@ -4,6 +4,7 @@ import (
 	"context"
 	pbAdmin "crmSystem/proto/dbadmin"
 	"crmSystem/utils"
+	"fmt"
 	"net/http"
 	"os"
 	"time"
@@ -65,7 +66,15 @@ func (s AdminServiceServer) RegisterUsersInCompany(ctx context.Context, req *pbA
 	defer cancel()
 
 	dbName := req.DbName
-	userCompanyId := req.UserCompanyId
+
+	if dbName == "" {
+		return &pbAdmin.RegisterUsersResponse{
+			Message: "Имя базы данных компании не указано",
+			Status:  http.StatusBadRequest,
+		}, fmt.Errorf("имя базы данных компании не указано")
+	}
+
+	CompanyId := req.CompanyId
 
 	authDBName := os.Getenv("DB_AUTH_NAME")
 	dsn := utils.DsnString(authDBName)
@@ -134,7 +143,7 @@ func (s AdminServiceServer) RegisterUsersInCompany(ctx context.Context, req *pbA
 		err = tx.QueryRow("SELECT id FROM authusers WHERE email = $1 OR phone = $2", user.Email, user.Phone).Scan(&existingAuthUserId)
 		if err == nil { // Пользователь уже существует
 			var existingUserId string
-			err = txc.QueryRow("SELECT id FROM users WHERE authId = $1 AND company_id = $2", existingAuthUserId, userCompanyId).Scan(&existingUserId)
+			err = txc.QueryRow("SELECT id FROM users WHERE authId = $1 AND company_id = $2", existingAuthUserId, CompanyId).Scan(&existingUserId)
 			if err == nil { // Пользователь существует и связан с компанией
 				registeredUsers = append(registeredUsers, &pbAdmin.UserResponse{
 					Email:    user.Email,
@@ -147,8 +156,8 @@ func (s AdminServiceServer) RegisterUsersInCompany(ctx context.Context, req *pbA
 
 			// Если пользователь существует, но не связан с компанией, добавляем связь
 			err = txc.QueryRow(
-				"INSERT INTO users (company_id, rightsId, authId) VALUES ($1, $2, $3) RETURNING id",
-				userCompanyId, user.RoleId, existingAuthUserId,
+				"INSERT INTO users (rightsId, authId) VALUES ($1, $2) RETURNING id",
+				user.RoleId, existingAuthUserId,
 			).Scan(&existingUserId)
 			if err != nil {
 				return &pbAdmin.RegisterUsersResponse{
@@ -168,7 +177,7 @@ func (s AdminServiceServer) RegisterUsersInCompany(ctx context.Context, req *pbA
 
 		// Если пользователь не существует, создаём его в таблице authusers
 		var userId int
-		err = stmtAuth.QueryRow(user.Email, user.Phone, "default_password", userCompanyId).Scan(&userId)
+		err = stmtAuth.QueryRow(user.Email, user.Phone, "default_password", CompanyId).Scan(&userId)
 		if err != nil {
 			return &pbAdmin.RegisterUsersResponse{
 				Message: "Ошибка создания пользователя: " + err.Error(),
@@ -179,8 +188,8 @@ func (s AdminServiceServer) RegisterUsersInCompany(ctx context.Context, req *pbA
 		// Добавляем пользователя в таблицу users
 		var newUserId string
 		err = txc.QueryRow(
-			"INSERT INTO users (company_id, rightsId, authId) VALUES ($1, $2, $3) RETURNING id",
-			userCompanyId, user.RoleId, userId,
+			"INSERT INTO users (rightsId, authId) VALUES ($1, $2) RETURNING id",
+			user.RoleId, userId,
 		).Scan(&newUserId)
 		if err != nil {
 			return &pbAdmin.RegisterUsersResponse{
@@ -197,15 +206,13 @@ func (s AdminServiceServer) RegisterUsersInCompany(ctx context.Context, req *pbA
 		})
 	}
 
-	err = tx.Commit()
-	if err == nil {
-		err = txc.Commit()
-	}
-	if err != nil {
+	txErr := tx.Commit()
+	txcErr := txc.Commit()
+	if txErr != nil || txcErr != nil {
 		return &pbAdmin.RegisterUsersResponse{
-			Message: "Ошибка при фиксации транзакции: " + err.Error(),
+			Message: "Ошибка при фиксации транзакции: " + fmt.Sprintf("txErr: %v, txcErr: %v", txErr, txcErr),
 			Status:  http.StatusInternalServerError,
-		}, err
+		}, fmt.Errorf("commit errors: txErr=%v, txcErr=%v", txErr, txcErr)
 	}
 
 	return &pbAdmin.RegisterUsersResponse{

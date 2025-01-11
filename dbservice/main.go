@@ -12,6 +12,7 @@ import (
 	pbTimer "crmSystem/proto/dbtimer" // Импортируйте сгенерированный пакет из протобуферов dbtimer
 	"crmSystem/utils"
 	"database/sql"
+	"fmt"
 	"github.com/joho/godotenv"
 	_ "github.com/lib/pq"
 	"google.golang.org/grpc"
@@ -59,257 +60,89 @@ func initDB(server *utils.MapConnectionsDB) error {
 		return err
 	}
 
-	// Открываем соединение с базой данных Авторизации
-	dsn := utils.DsnString(authDBName)
-	// Получаем соединение с базой данных
-	authDB, err := server.GetDb(dsn)
-	if err != nil {
-		log.Fatalf("Ошибка подключения к базе данных авторизации: %s", err)
-		return err
-	}
-
-	// Добавляем соединение к базе данных авторизации в пул серверов
-	server.MapDB[authDBName] = authDB
-
 	// Путь к миграциям
 	migratePath := os.Getenv("MIGRATION_AUTH_PATH")
 
-	// Выполняем миграцию для базы данных авторизации
-	err = migrations.Migration(authDB, migratePath, authDBName)
-	if err != nil {
-		log.Fatalf("Ошибка миграции для %s: %v", authDBName, err)
-		return err
-	}
+	// Конфигурация для повторных попыток
+	maxAttempts := 10                       // Максимальное количество попыток
+	delayBetweenAttempts := 5 * time.Second // Интервал между попытками
 
-	// Возвращаем nil, если все прошло успешно
-	return nil
-}
+	for attempt := 1; attempt <= maxAttempts; attempt++ {
+		log.Printf("Попытка подключения к базе данных авторизации (%d/%d)", attempt, maxAttempts)
 
-/*func (s *MapConnectionsDB) AddUser(ctx context.Context, req *pb.LoginDBRequest) (*pb.LoginDBResponse, error) {
-	// Проверяем пользователя, используя функцию checkUser.
-	dbName, userId, err := checkUser(s, req, ctx)
+		// Формируем строку подключения
+		dsn := utils.DsnString(authDBName)
 
-	if err != nil {
-		// Если произошла ошибка при проверке пользователя, формируем ответ с сообщением об ошибке.
-		response := &pb.LoginDBResponse{
-			Message:       "Внутренняя ошибка: " + err.Error(), // Сообщение об ошибке.
-			Database:      "",                                  // Имя базы данных (пустое в случае ошибки).
-			UserCompanyId: "",                                  // ID пользователя в БД компании.
-			Status:        http.StatusInternalServerError,      // Статус внутренней ошибки.
-		}
-		return response, nil // Возвращаем ответ с ошибкой.
-	}
-
-	//Проверяем найдена ли база данных для данного пользователя
-	if dbName == "" {
-		// Если база данных не найдена, формируем ответ с сообщением об ошибке.
-		response := &pb.LoginDBResponse{
-			Message:       "Ошибка нахождения базы данных: " + err.Error(), // Сообщение об ошибке.
-			Database:      "",                                              // Имя базы данных (пустое в случае ошибки).
-			UserCompanyId: "",                                              // ID пользователя в БД компании.
-			Status:        http.StatusInternalServerError,                  // Статус внутренней ошибки.
-		}
-		return response, nil // Возвращаем ответ с ошибкой.
-	}
-
-	// Формируем успешный ответ, если пользователь найден.
-	response := &pb.LoginDBResponse{
-		Message:       "Пользователь найден", // Сообщение об успешном входе.
-		Database:      dbName,                // Имя базы данных, к которой подключен пользователь.
-		UserCompanyId: userId,                // ID пользователя в БД компании.
-		Status:        http.StatusOK,         // Статус успешного выполнения.
-	}
-
-	return response, nil // Возвращаем успешный ответ.
-}*/
-
-/*func formUsersKeyRedis(req *pb.RegisterUsersRequest) string {
-	// Формируем ключ для Redis
-	var userIdentifiers []string
-	for _, user := range req.Users {
-		// Например, используем email как идентификатор
-		userIdentifiers = append(userIdentifiers, user.Email)
-	}
-
-	// Объединяем идентификаторы пользователей через разделитель
-	userString := strings.Join(userIdentifiers, ",")
-
-	// Формируем ключ для Redis
-	redisKey := "RegisterUsers" + userString
-	return redisKey
-}
-
-func registerUsersInCompany(server *MapConnectionsDB, req *pb.RegisterUsersRequest, token string) (nameDB string, err error, userCompanyId string, status uint32) {
-
-	// В случае превышения порога ожидания с сервера в 10 секунд будет ошибка контекста.
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
-	defer cancel()
-
-	// Проверка базы данных в Redis
-	client, err, connRedis := utils.RedisServiceConnector(token)
-	if err != nil {
-		fmt.Printf("Ошибка Подключение к redis: %v", err)
-		return "", err, "", http.StatusInternalServerError
-	}
-	defer connRedis.Close()
-
-	// Создаем запрос для Redis
-	req1 := &redis.GetRedisRequest{
-		Key: formUsersKeyRedis(req),
-	}
-
-	// Выполняем gRPC вызов для проверки компании в Redis
-	resRedis, err := client.Get(ctx, req1)
-	if err != nil || resRedis.Status != http.StatusOK {
-		return "", fmt.Errorf("Ошибка при получении данных из Redis: %v", err), "", http.StatusInternalServerError
-	}
-
-	// Преобразуем данные из Redis
-	convertedRedis, err := utils.ConvertJSONToStruct[pb.RegisterCompanyResponse](resRedis.Message)
-	if err != nil {
-		return "", fmt.Errorf("Ошибка при преобразовании данных из Redis: %v", err), "", http.StatusInternalServerError
-	}
-
-	// Получаем имя базы данных компании из Redis
-	dbName := convertedRedis.Database
-	userCompanyId := convertedRedis.UserCompanyId
-
-	// Создаем соединение с базой данных авторизации
-	authDBName := os.Getenv("DB_AUTH_NAME")
-	dsn := utils.DsnString(authDBName)
-	dbConn, err := server.GetDb(dsn)
-	if err != nil {
-		return "", err, "", http.StatusInternalServerError
-	}
-
-	if dbConn == nil {
-		return "", fmt.Errorf("Соединение с базой данных авторизации не инициализировано"), "", http.StatusInternalServerError
-	}
-
-	// Начинаем транзакцию для базы данных авторизации
-	tx, err := dbConn.Begin()
-	if err != nil {
-		return "", fmt.Errorf("Не удалось начать транзакцию: %v", err), "", http.StatusInternalServerError
-	}
-	defer func() {
+		// Получаем соединение с базой данных
+		authDB, err := server.GetDb(dsn)
 		if err != nil {
-			_ = tx.Rollback()
-			log.Printf("Транзакция откатана (auth DB) из-за ошибки: %v", err)
-		}
-	}()
+			log.Printf("Не удалось подключиться к базе данных: %s", err)
 
-	// Работа с базой данных компании.
-	dsnC := utils.DsnString(dbName)          // Формируем строку подключения к базе данных компании.
-	dbConnCompany, err := server.GetDb(dsnC) // Получаем соединение с базой данных компании.
+			// Если это последняя попытка, возвращаем ошибку
+			if attempt == maxAttempts {
+				log.Fatalf("Ошибка подключения к базе данных авторизации после %d попыток: %s", maxAttempts, err)
+				return err
+			}
 
-	if dbConnCompany == nil {
-		log.Println("Ошибка: соединение с базой данных компании не инициализировано")
-		return "", fmt.Errorf("Соединение с базой данных компании не инициализировано"), "", http.StatusInternalServerError // Возвращаем ошибку, если соединение не удалось.
-	}
-
-	txc, err := dbConnCompany.Begin() // Начинаем транзакцию для базы данных компании.
-	if err != nil {
-		return "", fmt.Errorf("Не удалось начать транзакцию для компании: %v", err), "", http.StatusInternalServerError // Возвращаем ошибку, если не удалось начать транзакцию.
-	}
-
-	defer func() { // Отложенная функция для отката транзакции в случае ошибки.
-		if err != nil {
-			_ = txc.Rollback()                                                   // Откатываем транзакцию.
-			log.Printf("Транзакция откатана (company DB) из-за ошибки: %v", err) // Логируем откат.
-			// Откат действий в первой базе данных.
-			rollbackAuthDB(dbConn, companyId, authUserId)
-		}
-	}()
-
-	// Обрабатываем добавление новых пользователей
-	for _, user := range req.Users {
-		var existingUserId int
-
-		// Проверяем, существует ли пользователь с указанным email или phone
-		err = tx.QueryRow(
-			"SELECT id FROM authusers WHERE email = $1 OR phone = $2",
-			user.Email, user.Phone,
-		).Scan(&existingUserId)
-
-		if err == nil {
-			// Пользователь уже существует, пропускаем его создание
+			// Ждем перед следующей попыткой
+			time.Sleep(delayBetweenAttempts)
 			continue
-		} else if err != sql.ErrNoRows {
-			// Обрабатываем другие ошибки
-			return "", fmt.Errorf("Ошибка при проверке существования пользователя: %v", err), "", http.StatusInternalServerError
 		}
 
-		// Пользователь не существует, создаем нового
-		var userId int
-		err = tx.QueryRow(
-			"INSERT INTO authusers (email, phone, password, company_id) VALUES ($1, $2, $3, $4) RETURNING id",
-			user.Email, user.Phone, user.Password, req.CompanyId,
-		).Scan(&userId)
-		if err != nil {
-			return "", fmt.Errorf("Не удалось создать пользователя: %v", err), "", http.StatusInternalServerError
+		// Проверяем, готова ли база данных
+		for checkAttempt := 1; checkAttempt <= maxAttempts; checkAttempt++ {
+			log.Printf("Проверка готовности базы данных (попытка %d/%d)", checkAttempt, maxAttempts)
+			if isDatabaseReady(authDB) {
+				break
+			}
+
+			if checkAttempt == maxAttempts {
+				log.Fatalf("База данных %s не готова после %d попыток проверки", authDBName, maxAttempts)
+				return fmt.Errorf("база данных %s не готова", authDBName)
+			}
+
+			time.Sleep(delayBetweenAttempts)
 		}
 
-		// Добавляем пользователя в таблицу users
-		role := user.Role
-		var roleId int
-		err = txc.QueryRow("INSERT INTO rights (roles) VALUES ($1) RETURNING id", role).Scan(&roleId)
+		// Добавляем соединение к базе данных авторизации в пул серверов
+		server.MapDB[authDBName] = authDB
+
+		// Выполняем миграцию для базы данных авторизации
+		err = migrations.Migration(authDB, migratePath, authDBName)
 		if err != nil {
-			return "", fmt.Errorf("Не удалось добавить роль: %v", err), "", http.StatusInternalServerError
+			log.Printf("Ошибка миграции для %s: %v", authDBName, err)
+
+			// Если это последняя попытка, возвращаем ошибку
+			if attempt == maxAttempts {
+				log.Fatalf("Ошибка миграции для %s после %d попыток: %v", authDBName, maxAttempts, err)
+				return err
+			}
+
+			// Ждем перед следующей попыткой
+			time.Sleep(delayBetweenAttempts)
+			continue
 		}
 
-		var newUserId string
-		err = txc.QueryRow(
-			"INSERT INTO users (company_id, rightsId, authId) VALUES ($1, $2, $3) RETURNING id",
-			req.CompanyId, roleId, userId,
-		).Scan(&newUserId)
-		if err != nil {
-			return "", fmt.Errorf("Не удалось добавить пользователя в систему: %v", err), "", http.StatusInternalServerError
-		}
-
-		// Дополнительная логика для добавления действий, доступных пользователю (если нужно)
-		_, err = txc.Exec(
-			"INSERT INTO availableactions (roleId, createTasks, createChats, addWorkers) VALUES ($1, $2, $3, $4)",
-			roleId, true, true, true,
-		)
-		if err != nil {
-			return "", fmt.Errorf("Не удалось добавить действия для роли: %v", err), "", http.StatusInternalServerError
-		}
+		// Если подключение, проверка и миграция успешны, выходим из цикла
+		log.Println("Успешное подключение, проверка готовности и миграция базы данных авторизации")
+		return nil
 	}
 
-	// Зафиксировать транзакцию
-	err = tx.Commit()
-	err = txc.Commit()
+	// Возвращаем ошибку, если все попытки исчерпаны
+	return fmt.Errorf("не удалось подключиться и выполнить миграцию для базы данных авторизации после %d попыток", maxAttempts)
+}
+
+// Проверка готовности базы данных
+func isDatabaseReady(db *sql.DB) bool {
+	query := `SELECT 1 FROM pg_database WHERE datname = current_database()`
+	var result int
+	err := db.QueryRow(query).Scan(&result)
 	if err != nil {
-		return "", fmt.Errorf("Не удалось зафиксировать транзакцию: %v", err), "", http.StatusInternalServerError
+		log.Printf("База данных еще не готова: %s", err)
+		return false
 	}
-
-	// Преобразуем данные для отправки в Redis
-	toJsonType := &pb.RegisterCompanyResponse{
-		Message:       req.CompanyName,
-		Database:      dbName,
-		UserCompanyId: userCompanyId,
-		Status:        http.StatusOK,
-	}
-
-	toJsonRedis, err := utils.ConvertStructToJSON(toJsonType)
-	if err != nil {
-		return "", fmt.Errorf("Ошибка при преобразовании данных для Redis: %v", err), "", http.StatusInternalServerError
-	}
-
-	// Сохраняем данные в Redis
-	saveRequest := &redis.SaveRedisRequest{
-		Key:        req.CompanyName + "Register" + userCompanyId,
-		Value:      toJsonRedis,
-		Expiration: int64((time.Minute * 10).Seconds()),
-	}
-
-	_, err = client.Save(ctx, saveRequest)
-	if err != nil {
-		return "", fmt.Errorf("Ошибка при сохранении данных в Redis: %v", err), "", http.StatusInternalServerError
-	}
-
-	return dbName, nil, userCompanyId, http.StatusOK
-}*/
+	return result == 1
+}
 
 // fullCompaniesMigrations проходимся по всем базам данных и применяем последние миграционные обновления
 func fullCompaniesMigrations() {

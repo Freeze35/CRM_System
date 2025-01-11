@@ -52,11 +52,11 @@ func callRegisterCompany(client dbauth.DbAuthServiceClient, req *auth.RegisterAu
 		}
 
 		response := &auth.RegisterAuthResponse{
-			Message:       "Внутреняя ошибка регистрации: " + message,
-			Database:      "",
-			UserCompanyId: "",
-			Token:         "",
-			Status:        status,
+			Message:   "Внутреняя ошибка регистрации: " + message,
+			Database:  "",
+			CompanyId: "",
+			Token:     "",
+			Status:    status,
 		}
 
 		log.Printf("Ошибка при вызове RegisterCompany: %v", err)
@@ -72,31 +72,31 @@ func callRegisterCompany(client dbauth.DbAuthServiceClient, req *auth.RegisterAu
 		if err != nil || resDB.Status != http.StatusOK {
 
 			response := &auth.RegisterAuthResponse{
-				Message:       resDB.Message,
-				Database:      resDB.Database,
-				UserCompanyId: resDB.UserCompanyId,
-				Token:         "",
-				Status:        http.StatusOK,
+				Message:   resDB.Message,
+				Database:  resDB.Database,
+				CompanyId: resDB.CompanyId,
+				Token:     "",
+				Status:    http.StatusOK,
 			}
 			return response, nil
 		} else {
 			response := &auth.RegisterAuthResponse{
-				Message:       resDB.Message,
-				Database:      resDB.Database,
-				UserCompanyId: resDB.UserCompanyId,
-				Token:         token,
-				Status:        http.StatusOK,
+				Message:   resDB.Message,
+				Database:  resDB.Database,
+				CompanyId: resDB.CompanyId,
+				Token:     token,
+				Status:    http.StatusOK,
 			}
 			return response, nil
 		}
 
 	} else {
 		response := &auth.RegisterAuthResponse{
-			Message:       "Внутренняя ошибка создания компании : " + resDB.Message,
-			Database:      "",
-			UserCompanyId: "",
-			Token:         "",
-			Status:        resDB.Status,
+			Message:   "Внутренняя ошибка создания компании : " + resDB.Message,
+			Database:  "",
+			CompanyId: "",
+			Token:     "",
+			Status:    resDB.Status,
 		}
 		return response, nil
 	}
@@ -119,11 +119,11 @@ func (s *AuthServiceServer) Register(ctx context.Context, req *auth.RegisterAuth
 		log.Printf("Не удалось подключиться к серверу: %v", err)
 		if err != nil {
 			response := &auth.RegisterAuthResponse{
-				Message:       "Не удалось подключиться к серверу : " + err.Error(),
-				Database:      "",
-				UserCompanyId: "",
-				Token:         "",
-				Status:        http.StatusInternalServerError,
+				Message:   "Не удалось подключиться к серверу : " + err.Error(),
+				Database:  "",
+				CompanyId: "",
+				Token:     "",
+				Status:    http.StatusInternalServerError,
 			}
 			return response, err
 		}
@@ -131,11 +131,11 @@ func (s *AuthServiceServer) Register(ctx context.Context, req *auth.RegisterAuth
 	response, err := callRegisterCompany(client, req, ctx)
 	if err != nil {
 		response := &auth.RegisterAuthResponse{
-			Message:       "Внутренняя ошибка создания компании : " + err.Error(),
-			Database:      "",
-			UserCompanyId: "",
-			Token:         "",
-			Status:        http.StatusInternalServerError,
+			Message:   "Внутренняя ошибка создания компании : " + err.Error(),
+			Database:  "",
+			CompanyId: "",
+			Token:     "",
+			Status:    http.StatusInternalServerError,
 		}
 		return response, err
 	}
@@ -188,20 +188,20 @@ func loginUser(client dbauth.DbAuthServiceClient, req *auth.LoginAuthRequest) (r
 	if err != nil || resDB.Status != http.StatusOK {
 
 		response = &auth.LoginAuthResponse{
-			Message:       resDB.Message,
-			Database:      resDB.Database,
-			UserCompanyId: resDB.UserCompanyId,
-			Token:         "",
-			Status:        resDB.Status,
+			Message:   resDB.Message,
+			Database:  resDB.Database,
+			CompanyId: resDB.CompanyId,
+			Token:     "",
+			Status:    resDB.Status,
 		}
 		return response, nil
 	} else {
 		response = &auth.LoginAuthResponse{
-			Message:       resDB.Message,
-			Database:      resDB.Database,
-			UserCompanyId: resDB.UserCompanyId,
-			Token:         token,
-			Status:        resDB.Status,
+			Message:   resDB.Message,
+			Database:  resDB.Database,
+			CompanyId: resDB.CompanyId,
+			Token:     token,
+			Status:    resDB.Status,
 		}
 		return response, nil
 	}
@@ -217,11 +217,11 @@ func (s *AuthServiceServer) Login(_ context.Context, req *auth.LoginAuthRequest)
 
 	if err != nil {
 		response := &auth.LoginAuthResponse{
-			Message:       "Не удалось подключиться к серверу: " + err.Error(),
-			Database:      "",
-			UserCompanyId: "",
-			Token:         "",
-			Status:        http.StatusInternalServerError,
+			Message:   "Не удалось подключиться к серверу: " + err.Error(),
+			Database:  "",
+			CompanyId: "",
+			Token:     "",
+			Status:    http.StatusInternalServerError,
 		}
 		return response, err
 	}

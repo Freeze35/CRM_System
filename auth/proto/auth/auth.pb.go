@@ -112,11 +112,11 @@ type RegisterAuthResponse struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	Message       string `protobuf:"bytes,1,opt,name=message,proto3" json:"message,omitempty"`
-	Database      string `protobuf:"bytes,2,opt,name=database,proto3" json:"database,omitempty"`
-	UserCompanyId string `protobuf:"bytes,3,opt,name=userCompanyId,proto3" json:"userCompanyId,omitempty"`
-	Token         string `protobuf:"bytes,4,opt,name=token,proto3" json:"token,omitempty"`
-	Status        uint32 `protobuf:"varint,5,opt,name=status,proto3" json:"status,omitempty"`
+	Message   string `protobuf:"bytes,1,opt,name=message,proto3" json:"message,omitempty"`
+	Database  string `protobuf:"bytes,2,opt,name=database,proto3" json:"database,omitempty"`
+	CompanyId string `protobuf:"bytes,3,opt,name=CompanyId,proto3" json:"CompanyId,omitempty"`
+	Token     string `protobuf:"bytes,4,opt,name=token,proto3" json:"token,omitempty"`
+	Status    uint32 `protobuf:"varint,5,opt,name=status,proto3" json:"status,omitempty"`
 }
 
 func (x *RegisterAuthResponse) Reset() {
@@ -165,9 +165,9 @@ func (x *RegisterAuthResponse) GetDatabase() string {
 	return ""
 }
 
-func (x *RegisterAuthResponse) GetUserCompanyId() string {
+func (x *RegisterAuthResponse) GetCompanyId() string {
 	if x != nil {
-		return x.UserCompanyId
+		return x.CompanyId
 	}
 	return ""
 }
@@ -254,11 +254,11 @@ type LoginAuthResponse struct {
 	sizeCache     protoimpl.SizeCache
 	unknownFields protoimpl.UnknownFields
 
-	Message       string `protobuf:"bytes,1,opt,name=message,proto3" json:"message,omitempty"`
-	Database      string `protobuf:"bytes,2,opt,name=database,proto3" json:"database,omitempty"`
-	UserCompanyId string `protobuf:"bytes,3,opt,name=userCompanyId,proto3" json:"userCompanyId,omitempty"`
-	Token         string `protobuf:"bytes,4,opt,name=token,proto3" json:"token,omitempty"`
-	Status        uint32 `protobuf:"varint,5,opt,name=status,proto3" json:"status,omitempty"`
+	Message   string `protobuf:"bytes,1,opt,name=message,proto3" json:"message,omitempty"`
+	Database  string `protobuf:"bytes,2,opt,name=database,proto3" json:"database,omitempty"`
+	CompanyId string `protobuf:"bytes,3,opt,name=CompanyId,proto3" json:"CompanyId,omitempty"`
+	Token     string `protobuf:"bytes,4,opt,name=token,proto3" json:"token,omitempty"`
+	Status    uint32 `protobuf:"varint,5,opt,name=status,proto3" json:"status,omitempty"`
 }
 
 func (x *LoginAuthResponse) Reset() {
@@ -307,9 +307,9 @@ func (x *LoginAuthResponse) GetDatabase() string {
 	return ""
 }
 
-func (x *LoginAuthResponse) GetUserCompanyId() string {
+func (x *LoginAuthResponse) GetCompanyId() string {
 	if x != nil {
-		return x.UserCompanyId
+		return x.CompanyId
 	}
 	return ""
 }

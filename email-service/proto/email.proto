@@ -17,4 +17,5 @@ message SendEmailRequest {
 message SendEmailResponse {
   uint32 status = 1;
   string message = 2;
+  string failures = 3;
 }

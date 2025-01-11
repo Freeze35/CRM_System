@@ -86,11 +86,11 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 
 	if err != nil {
 		response := &types.LoginAuthResponse{
-			Message:       "Не удалось подключиться к серверу: " + err.Error(),
-			Database:      "",
-			UserCompanyId: "",
-			Token:         "",
-			Status:        http.StatusInternalServerError,
+			Message:   "Не удалось подключиться к серверу: " + err.Error(),
+			Database:  "",
+			CompanyId: "",
+			Token:     "",
+			Status:    http.StatusInternalServerError,
 		}
 		if err := utils.WriteJSON(w, response.Status, response); err != nil {
 			utils.CreateError(w, http.StatusInternalServerError, "Не корректная ошибка на сервере", err)
@@ -156,20 +156,20 @@ func loginUser(client dbauth.DbAuthServiceClient, req *types.LoginAuthRequest) (
 	if err != nil || resDB.Status != http.StatusOK {
 
 		response = &types.LoginAuthResponse{
-			Message:       resDB.Message,
-			Database:      resDB.Database,
-			UserCompanyId: resDB.UserCompanyId,
-			Token:         "",
-			Status:        resDB.Status,
+			Message:   resDB.Message,
+			Database:  resDB.Database,
+			CompanyId: resDB.CompanyId,
+			Token:     "",
+			Status:    resDB.Status,
 		}
 		return response, nil
 	} else {
 		response = &types.LoginAuthResponse{
-			Message:       resDB.Message,
-			Database:      resDB.Database,
-			UserCompanyId: resDB.UserCompanyId,
-			Token:         token,
-			Status:        resDB.Status,
+			Message:   resDB.Message,
+			Database:  resDB.Database,
+			CompanyId: resDB.CompanyId,
+			Token:     token,
+			Status:    resDB.Status,
 		}
 		return response, nil
 	}
@@ -272,11 +272,11 @@ func callRegisterCompany(client dbauth.DbAuthServiceClient, req *types.RegisterA
 		}
 
 		response := &types.RegisterAuthResponse{
-			Message:       "Внутреняя ошибка регистрации: " + message,
-			Database:      "",
-			UserCompanyId: "",
-			Token:         "",
-			Status:        status,
+			Message:   "Внутреняя ошибка регистрации: " + message,
+			Database:  "",
+			CompanyId: "",
+			Token:     "",
+			Status:    status,
 		}
 
 		log.Printf("Ошибка при вызове RegisterCompany: %v", err)
@@ -292,31 +292,31 @@ func callRegisterCompany(client dbauth.DbAuthServiceClient, req *types.RegisterA
 		if err != nil || resDB.Status != http.StatusOK {
 
 			response := &types.RegisterAuthResponse{
-				Message:       resDB.Message,
-				Database:      resDB.Database,
-				UserCompanyId: resDB.UserCompanyId,
-				Token:         "",
-				Status:        http.StatusOK,
+				Message:   resDB.Message,
+				Database:  resDB.Database,
+				CompanyId: resDB.CompanyId,
+				Token:     "",
+				Status:    http.StatusOK,
 			}
 			return response, nil
 		} else {
 			response := &types.RegisterAuthResponse{
-				Message:       resDB.Message,
-				Database:      resDB.Database,
-				UserCompanyId: resDB.UserCompanyId,
-				Token:         token,
-				Status:        http.StatusOK,
+				Message:   resDB.Message,
+				Database:  resDB.Database,
+				CompanyId: resDB.CompanyId,
+				Token:     token,
+				Status:    http.StatusOK,
 			}
 			return response, nil
 		}
 
 	} else {
 		response := &types.RegisterAuthResponse{
-			Message:       resDB.Message,
-			Database:      "",
-			UserCompanyId: "",
-			Token:         "",
-			Status:        resDB.Status,
+			Message:   resDB.Message,
+			Database:  "",
+			CompanyId: "",
+			Token:     "",
+			Status:    resDB.Status,
 		}
 		return response, nil
 	}

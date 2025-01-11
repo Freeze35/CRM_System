@@ -10,11 +10,11 @@ type RegisterAuthRequest struct {
 }
 
 type RegisterAuthResponse struct {
-	Message       string `json:"message"`
-	Database      string `json:"database"`
-	UserCompanyId string `json:"userCompanyId"`
-	Token         string `json:"token"`
-	Status        uint32 `json:"status"`
+	Message   string `json:"message"`
+	Database  string `json:"database"`
+	CompanyId string `json:"companyId"`
+	Token     string `json:"token"`
+	Status    uint32 `json:"status"`
 }
 
 type LoginAuthRequest struct {
@@ -24,11 +24,11 @@ type LoginAuthRequest struct {
 }
 
 type LoginAuthResponse struct {
-	Message       string `json:"message"`
-	Database      string `json:"database"`
-	UserCompanyId string `json:"userCompanyId"`
-	Token         string `json:"token"`
-	Status        uint32 `json:"status"`
+	Message   string `json:"message"`
+	Database  string `json:"database"`
+	CompanyId string `json:"companyId"`
+	Token     string `json:"token"`
+	Status    uint32 `json:"status"`
 }
 
 type SendEmailRequest struct {

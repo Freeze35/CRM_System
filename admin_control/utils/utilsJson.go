@@ -29,8 +29,8 @@ func CreateError(w http.ResponseWriter, status uint32, v string, err error) {
 	w.Header().Add("Content-Type", "application/json")
 	w.WriteHeader(int(status))
 	response := types.ErrorResponse{
-		Message: fmt.Errorf("%s: %v", v, err).Error(),
-		Status:  http.StatusBadRequest,
+		Message: fmt.Errorf("%s %v", v, err).Error(),
+		Status:  status,
 	}
 
 	encodeErr := json.NewEncoder(w).Encode(response)

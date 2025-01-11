@@ -22,7 +22,7 @@ message RegisterCompanyRequest {
 message RegisterCompanyResponse {
   string message = 1;
   string database = 2;
-  string userCompanyId = 3;
+  string CompanyId = 3;
   uint32 status = 4;
 }
 
@@ -35,7 +35,7 @@ message LoginDBRequest {
 message LoginDBResponse {
   string message = 1;
   string database = 2;
-  string userCompanyId = 3;
+  string CompanyId = 3;
   uint32 status = 4;
 }
 

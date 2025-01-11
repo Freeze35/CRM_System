@@ -19,7 +19,7 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	DbAdminService_RegisterUsersInCompany_FullMethodName = "/protobuff.dbAdminService/registerUsersInCompany"
+	DbAdminService_RegisterUsersInCompany_FullMethodName = "/protobuff.dbAdminService/RegisterUsersInCompany"
 )
 
 // DbAdminServiceClient is the client API for DbAdminService service.
@@ -114,7 +114,7 @@ var DbAdminService_ServiceDesc = grpc.ServiceDesc{
 	HandlerType: (*DbAdminServiceServer)(nil),
 	Methods: []grpc.MethodDesc{
 		{
-			MethodName: "registerUsersInCompany",
+			MethodName: "RegisterUsersInCompany",
 			Handler:    _DbAdminService_RegisterUsersInCompany_Handler,
 		},
 	},
