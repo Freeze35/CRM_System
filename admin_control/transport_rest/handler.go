@@ -70,7 +70,13 @@ func (h *Handler) AddUsers(w http.ResponseWriter, r *http.Request) {
 
 	// Устанавливаем соединение с gRPC сервером dbService
 	client, err, conn := utils.GRPCServiceConnector(true, dbadmin.NewDbAdminServiceClient)
-	defer conn.Close()
+	if err != nil {
+		log.Printf("Не удалось подключиться к серверу: %v", err)
+		utils.CreateError(w, http.StatusBadRequest, "Ошибка подключения", err)
+		return
+	} else {
+		defer conn.Close()
+	}
 
 	if err != nil {
 		response := &dbadmin.RegisterUsersResponse{
@@ -101,19 +107,12 @@ func (h *Handler) AddUsers(w http.ResponseWriter, r *http.Request) {
 
 	// Устанавливаем соединение с gRPC сервером dbService
 	clientEmail, err, conn := utils.GRPCServiceConnector(true, email.NewEmailServiceClient)
-	defer conn.Close()
-
 	if err != nil {
-		response := &dbadmin.RegisterUsersResponse{
-			Message:   "Не удалось подключиться к серверу : " + err.Error(),
-			Users:     []*dbadmin.UserResponse{},
-			CompanyId: "",
-			Status:    http.StatusInternalServerError,
-		}
-		if err := utils.WriteJSON(w, response.Status, response); err != nil {
-			utils.CreateError(w, http.StatusInternalServerError, "Не корректная ошибка на сервере.", err)
-		}
+		log.Printf("Не удалось подключиться к серверу: %v", err)
+		utils.CreateError(w, http.StatusBadRequest, "Ошибка подключения", err)
 		return
+	} else {
+		defer conn.Close()
 	}
 
 	// Подготовим список успешных и неуспешных отправок

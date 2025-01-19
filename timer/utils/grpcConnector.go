@@ -2,7 +2,6 @@ package utils
 
 import (
 	"context"
-	"crmSystem/proto/dbtimer"
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
@@ -10,16 +9,17 @@ import (
 	"google.golang.org/grpc/credentials"
 	"io/ioutil"
 	"log"
+	"os"
 	"time"
 )
 
 // Добавим функцию генерации токена и установим его в gRPC-запрос
-func GrpcConnector(token string) (client dbtimer.DbTimerServiceClient, err error, conn *grpc.ClientConn) {
+func GRPCServiceConnector[T any](generateToken bool, clientFactory func(grpc.ClientConnInterface) T) (client T, err error, conn *grpc.ClientConn) {
 	// Генерация JWT-токена
-
+	token, err := JwtGenerate()
 	if err != nil {
 		log.Printf("Не удалось сгенерировать JWT: %v", err)
-		return nil, err, nil
+		return
 	}
 
 	// Создаем контекст с таймаутом
@@ -27,10 +27,10 @@ func GrpcConnector(token string) (client dbtimer.DbTimerServiceClient, err error
 	defer cancel()
 
 	// Загружаем корневой сертификат CA
-	caCert, err := ioutil.ReadFile(clientCACertFile)
+	caCert, err := ioutil.ReadFile(ClientCACertFile)
 	if err != nil {
-		fmt.Printf("Не удалось прочитать CA сертификат: %v", err)
-		return nil, err, nil
+		log.Printf("Не удалось прочитать CA сертификат: %v", err)
+		return
 	}
 
 	// Создаем пул корневых сертификатов и добавляем CA сертификат
@@ -38,10 +38,10 @@ func GrpcConnector(token string) (client dbtimer.DbTimerServiceClient, err error
 	caCertPool.AppendCertsFromPEM(caCert)
 
 	// Настраиваем TLS с клиентскими сертификатами и проверкой CA
-	cert, err := tls.LoadX509KeyPair(serverCertFile, serverKeyFile)
+	cert, err := tls.LoadX509KeyPair(ServerCertFile, ServerKeyFile)
 	if err != nil {
 		log.Printf("Не удалось загрузить клиентские сертификаты: %v", err)
-		return nil, err, nil
+		return
 	}
 
 	creds := credentials.NewTLS(&tls.Config{
@@ -50,20 +50,29 @@ func GrpcConnector(token string) (client dbtimer.DbTimerServiceClient, err error
 		InsecureSkipVerify: false,
 	})
 
-	//Стандартная опция для привязки ssl и проврка на генерецию токена
+	// Стандартная опция для привязки SSL и проверка на генерацию токена
 	opts := []grpc.DialOption{grpc.WithTransportCredentials(creds)}
-
-	opts = append(opts, grpc.WithPerRPCCredentials(jwtTokenAuth{token}), grpc.WithBlock())
-
-	// Настраиваем gRPC соединение с передачей JWT-токена
-	conn, err = grpc.DialContext(ctx, "nginx:443", opts...)
-	if err != nil {
-		log.Printf("Не удалось подключиться к серверу: %v", err)
-		return nil, err, conn
+	if generateToken {
+		opts = append(opts, grpc.WithPerRPCCredentials(jwtTokenAuth{token}), grpc.WithBlock())
 	}
 
-	fmt.Println("Успешное подключение DbServiceConnector к gRPC серверу через NGINX с TLS")
-	return dbtimer.NewDbTimerServiceClient(conn), nil, conn
+	// Проверяем переменную среды GRPC_PROXY_CONNECTOR
+	proxyConnection := os.Getenv("GRPC_PROXY_CONNECTOR")
+	if proxyConnection == "" {
+		err = fmt.Errorf("переменная среды GRPC_PROXY_CONNECTOR не задана")
+		log.Printf("Ошибка: %v", err)
+		return
+	}
+
+	// Настраиваем gRPC соединение
+	conn, err = grpc.DialContext(ctx, proxyConnection, opts...)
+	if err != nil {
+		log.Printf("Не удалось подключиться к серверу: %v", err)
+		return
+	}
+
+	client = clientFactory(conn)
+	return
 }
 
 // jwtTokenAuth структура для установки JWT токена в качестве аутентификационных данных для gRPC

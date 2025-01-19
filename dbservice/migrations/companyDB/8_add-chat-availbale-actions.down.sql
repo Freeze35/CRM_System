@@ -1,0 +1,1 @@
+DROP TABLE IF EXISTS available_actions_chat;

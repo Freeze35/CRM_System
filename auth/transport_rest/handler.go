@@ -30,10 +30,10 @@ func NewHandler() *Handler {
 func (h *Handler) InitRouter() *mux.Router {
 	r := mux.NewRouter()
 
-	books := r.PathPrefix("/auth").Subrouter()
+	authRouts := r.PathPrefix("/auth").Subrouter()
 	{
-		books.HandleFunc("/login", h.Login).Methods(http.MethodPost)
-		books.HandleFunc("/register", h.Register).Methods(http.MethodPost)
+		authRouts.HandleFunc("/login", h.Login).Methods(http.MethodPost)
+		authRouts.HandleFunc("/register", h.Register).Methods(http.MethodPost)
 		/*books.HandleFunc("/{id:[0-9]+}", h.getBookByID).Methods(http.MethodGet)
 		books.HandleFunc("/{id:[0-9]+}", h.deleteBook).Methods(http.MethodDelete)
 		books.HandleFunc("/{id:[0-9]+}", h.updateBook).Methods(http.MethodPut)*/
@@ -82,20 +82,12 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 
 	// Устанавливаем соединение с gRPC сервером dbService
 	client, err, conn := utils.GRPCServiceConnector(true, dbauth.NewDbAuthServiceClient)
-	defer conn.Close()
-
 	if err != nil {
-		response := &types.LoginAuthResponse{
-			Message:   "Не удалось подключиться к серверу: " + err.Error(),
-			Database:  "",
-			CompanyId: "",
-			Token:     "",
-			Status:    http.StatusInternalServerError,
-		}
-		if err := utils.WriteJSON(w, response.Status, response); err != nil {
-			utils.CreateError(w, http.StatusInternalServerError, "Не корректная ошибка на сервере", err)
-		}
+		log.Printf("Не удалось подключиться к серверу: %v", err)
+		utils.CreateError(w, http.StatusBadRequest, "Ошибка подключения", err)
 		return
+	} else {
+		defer conn.Close()
 	}
 
 	// Проводим авторизацию пользователя с запросом к dbservice
@@ -185,7 +177,6 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 	decoder := json.NewDecoder(r.Body)
 	if err := decoder.Decode(&req); err != nil {
 		utils.CreateError(w, http.StatusBadRequest, "Ошибка при декодировании данных", err)
-
 		return
 	}
 
@@ -221,10 +212,12 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 	// Устанавливаем соединение с gRPC сервером dbService
 	client, err, conn := utils.GRPCServiceConnector(true, dbauth.NewDbAuthServiceClient)
 	if err != nil {
-		utils.CreateError(w, http.StatusInternalServerError, "Ошибка подключения к gRPC серверу", err)
+		log.Printf("Не удалось подключиться к серверу: %v", err)
+		utils.CreateError(w, http.StatusBadRequest, "Ошибка подключения", err)
 		return
+	} else {
+		defer conn.Close()
 	}
-	defer conn.Close()
 
 	// Вызываем метод регистрации компании через gRPC
 	response, err := callRegisterCompany(client, &req, ctx)

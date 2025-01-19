@@ -20,7 +20,7 @@ type ErrorResponse struct {
 type User struct {
 	Email  string `json:"email" validate:"required,email"` // Обязательно, должен быть корректным email
 	Phone  string `json:"phone" validate:"required"`       // Обязательно
-	RoleId string `json:"roleId" validate:"required"`      // Обязательно
+	RoleId int64  `json:"roleId" validate:"required"`      // Обязательно
 }
 
 type RegisterUsersRequest struct {

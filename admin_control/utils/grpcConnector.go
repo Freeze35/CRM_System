@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"crypto/x509"
+	"fmt"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"io/ioutil"
@@ -66,7 +67,13 @@ func GRPCServiceConnector[T any](generateToken bool, clientFactory func(grpc.Cli
 		opts = append(opts, grpc.WithPerRPCCredentials(jwtTokenAuth{token}), grpc.WithBlock())
 	}
 
+	// Проверяем переменную среды GRPC_PROXY_CONNECTOR
 	proxyConnection := os.Getenv("GRPC_PROXY_CONNECTOR")
+	if proxyConnection == "" {
+		err = fmt.Errorf("переменная среды GRPC_PROXY_CONNECTOR не задана")
+		log.Printf("Ошибка: %v", err)
+		return
+	}
 
 	// Настраиваем gRPC соединение
 	conn, err = grpc.DialContext(ctx, proxyConnection, opts...)

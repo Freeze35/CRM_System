@@ -19,6 +19,11 @@ logs:
 clean:
 	docker-compose down -v
 
+create-console-test-client:
+	docker build -f ./chat_client/Dockerfile -t chat-client .
+
+test-chat-connections:
+	docker run --rm --network crm_system_crm-network chat-client ./chat_client --chat_id="2" --user_id="2"
 
 proto-auth:
 	protoc --go_out=./auth/proto --go-grpc_out=./auth/proto ./auth/proto/auth.proto
@@ -78,6 +83,9 @@ auth-ssl:
 	openssl genpkey -algorithm RSA -out ./nginx/sslkeys/server.key
 	openssl genpkey -algorithm RSA -out ./email-service/sslkeys/server.key
 	openssl genpkey -algorithm RSA -out ./admin_control/sslkeys/server.key
+	openssl genpkey -algorithm RSA -out ./chats/sslkeys/server.key
+	openssl genpkey -algorithm RSA -out ./chat_client/sslkeys/server.key
+	openssl genpkey -algorithm RSA -out ./redis/sslkeys/server.key
 
 # Создание запроса на сертификат для сервера
 4_server-sslcert:
@@ -86,6 +94,9 @@ auth-ssl:
 	openssl req -new -key ./nginx/sslkeys/server.key -out ./nginx/sslkeys/server.csr -config ./rootca/ssl.cnf
 	openssl req -new -key ./email-service/sslkeys/server.key -out ./email-service/sslkeys/server.csr -config ./rootca/ssl.cnf
 	openssl req -new -key ./admin_control/sslkeys/server.key -out ./admin_control/sslkeys/server.csr -config ./rootca/ssl.cnf
+	openssl req -new -key ./chats/sslkeys/server.key -out ./chats/sslkeys/server.csr -config ./rootca/ssl.cnf
+	openssl req -new -key ./chat_client/sslkeys/server.key -out ./chat_client/sslkeys/server.csr -config ./rootca/ssl.cnf
+	openssl req -new -key ./redis/sslkeys/server.key -out ./redis/sslkeys/server.csr -config ./rootca/ssl.cnf
 
 # Подпись сертификата сервера через CA
 5_trusted-sslcacert:
@@ -94,3 +105,6 @@ auth-ssl:
 	openssl x509 -req -in ./nginx/sslkeys/server.csr -CA ./rootca/ca.crt -CAkey ./rootca/ca.key -CAcreateserial -out ./nginx/sslkeys/server.pem -days 3650 -sha256 -extfile ./rootca/ssl.cnf -extensions req_ext
 	openssl x509 -req -in ./email-service/sslkeys/server.csr -CA ./rootca/ca.crt -CAkey ./rootca/ca.key -CAcreateserial -out ./email-service/sslkeys/server.pem -days 3650 -sha256 -extfile ./rootca/ssl.cnf -extensions req_ext
 	openssl x509 -req -in ./admin_control/sslkeys/server.csr -CA ./rootca/ca.crt -CAkey ./rootca/ca.key -CAcreateserial -out ./admin_control/sslkeys/server.pem -days 3650 -sha256 -extfile ./rootca/ssl.cnf -extensions req_ext
+	openssl x509 -req -in ./chats/sslkeys/server.csr -CA ./rootca/ca.crt -CAkey ./rootca/ca.key -CAcreateserial -out ./chats/sslkeys/server.pem -days 3650 -sha256 -extfile ./rootca/ssl.cnf -extensions req_ext
+	openssl x509 -req -in ./chat_client/sslkeys/server.csr -CA ./rootca/ca.crt -CAkey ./rootca/ca.key -CAcreateserial -out ./chat_client/sslkeys/server.pem -days 3650 -sha256 -extfile ./rootca/ssl.cnf -extensions req_ext
+	openssl x509 -req -in ./redis/sslkeys/server.csr -CA ./rootca/ca.crt -CAkey ./rootca/ca.key -CAcreateserial -out ./redis/sslkeys/server.pem -days 3650 -sha256 -extfile ./rootca/ssl.cnf -extensions req_ext

@@ -12,12 +12,12 @@ service dbAdminService {
 message User {
   string email = 1;
   string phone = 2;
-  string roleId = 3;
+  int64 roleId = 3;
 }
 message UserResponse {
   string email = 1;
   string phone = 2;
-  string roleId = 3;
+  int64 roleId = 3;
   string password = 4;
 }
 

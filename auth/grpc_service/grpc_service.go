@@ -102,36 +102,24 @@ func callRegisterCompany(client dbauth.DbAuthServiceClient, req *auth.RegisterAu
 	}
 }
 
-// Register Реализация метода Register, для регистрации организации и пользователя как администратора
-func (s *AuthServiceServer) Register(ctx context.Context, req *auth.RegisterAuthRequest) (*auth.RegisterAuthResponse, error) {
+/*// Register Реализация метода Register, для регистрации организации и пользователя как администратора
+func (s *AuthServiceServer) Register(ctx context.Context, req *auth.RegisterAuthRequest) (*auth.RegisterAuthResponse, error) {*/
 
-	//dbServicePath := os.Getenv("DB_SERVER_URL") //Требуется поменять соединение в случае,
-	//разделения на отдельные докер соединения (то есть без docker-compose)
+//dbServicePath := os.Getenv("DB_SERVER_URL") //Требуется поменять соединение в случае,
+//разделения на отдельные докер соединения (то есть без docker-compose)
 
-	// Устанавливаем тайм-аут для соединения
-	/*ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-	defer cancel()*/
+// Устанавливаем тайм-аут для соединения
+/*ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+defer cancel()*/
 
-	// Устанавливаем соединение с gRPC сервером dbService
-	client, err, conn := utils.GRPCServiceConnector(true, dbauth.NewDbAuthServiceClient)
-	defer conn.Close()
-	if err != nil {
-		log.Printf("Не удалось подключиться к серверу: %v", err)
-		if err != nil {
-			response := &auth.RegisterAuthResponse{
-				Message:   "Не удалось подключиться к серверу : " + err.Error(),
-				Database:  "",
-				CompanyId: "",
-				Token:     "",
-				Status:    http.StatusInternalServerError,
-			}
-			return response, err
-		}
-	}
-	response, err := callRegisterCompany(client, req, ctx)
+// Устанавливаем соединение с gRPC сервером dbService
+/*client, err, conn := utils.GRPCServiceConnector(true, dbauth.NewDbAuthServiceClient)
+defer conn.Close()
+if err != nil {
+	log.Printf("Не удалось подключиться к серверу: %v", err)
 	if err != nil {
 		response := &auth.RegisterAuthResponse{
-			Message:   "Внутренняя ошибка создания компании : " + err.Error(),
+			Message:   "Не удалось подключиться к серверу : " + err.Error(),
 			Database:  "",
 			CompanyId: "",
 			Token:     "",
@@ -139,9 +127,21 @@ func (s *AuthServiceServer) Register(ctx context.Context, req *auth.RegisterAuth
 		}
 		return response, err
 	}
-
-	return response, nil
 }
+response, err := callRegisterCompany(client, req, ctx)
+if err != nil {
+	response := &auth.RegisterAuthResponse{
+		Message:   "Внутренняя ошибка создания компании : " + err.Error(),
+		Database:  "",
+		CompanyId: "",
+		Token:     "",
+		Status:    http.StatusInternalServerError,
+	}
+	return response, err
+}
+
+return response, nil*/
+/*}*/
 
 func loginUser(client dbauth.DbAuthServiceClient, req *auth.LoginAuthRequest) (response *auth.LoginAuthResponse, err error) {
 
@@ -209,7 +209,7 @@ func loginUser(client dbauth.DbAuthServiceClient, req *auth.LoginAuthRequest) (r
 }
 
 // Реализация метода Login, для авторизации уже зарегистрированного пользователя в AutorizationDB
-func (s *AuthServiceServer) Login(_ context.Context, req *auth.LoginAuthRequest) (*auth.LoginAuthResponse, error) {
+/*func (s *AuthServiceServer) Login(_ context.Context, req *auth.LoginAuthRequest) (*auth.LoginAuthResponse, error) {
 
 	// Устанавливаем соединение с gRPC сервером dbService
 	client, err, conn := utils.GRPCServiceConnector(true, dbauth.NewDbAuthServiceClient)
@@ -234,3 +234,4 @@ func (s *AuthServiceServer) Login(_ context.Context, req *auth.LoginAuthRequest)
 
 	return response, nil
 }
+*/

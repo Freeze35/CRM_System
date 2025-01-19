@@ -61,8 +61,9 @@ func main() {
 	conn, err := ConnectToRabbitMQ(rabbitMQURL, retryCount, retryInterval)
 	if err != nil {
 		log.Fatalf("Ошибка подключения к RabbitMQ: %v", err)
+	} else {
+		defer conn.Close()
 	}
-	defer conn.Close()
 
 	// Открытие канала
 	ch, err := conn.Channel()

@@ -5,7 +5,9 @@ import (
 	"crmSystem/proto/dbtimer"
 	"crmSystem/proto/timer"
 	"crmSystem/utils"
+	"github.com/joho/godotenv"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/keepalive"
 	"google.golang.org/grpc/reflection"
 	"log"
@@ -22,23 +24,17 @@ type TimerServiceServer struct {
 // StartTimer запуска таймера для клиента обращаясь через
 func (s *TimerServiceServer) StartTimer(ctx context.Context, req *timer.StartEndTimerRequest) (*timer.StartEndTimerResponse, error) {
 
-	token, err := utils.GetTokenFromMetadata(ctx)
-
-	//Проверка ошибки при получении
-	if err != nil {
-		log.Printf(err.Error())
-	}
-
 	// Устанавливаем соединение с gRPC сервером Nginx
-	client, err, conn := utils.GrpcConnector(token)
-	defer conn.Close()
-
+	client, err, conn := utils.GRPCServiceConnector(true, dbtimer.NewDbTimerServiceClient)
 	if err != nil {
+		log.Printf("Не удалось подключиться к серверу: %v", err)
 		response := &timer.StartEndTimerResponse{
 			Message: "Не удалось подключиться к серверу: " + err.Error(),
 			Status:  http.StatusInternalServerError,
 		}
 		return response, err
+	} else {
+		defer conn.Close()
 	}
 
 	dbReq := &dbtimer.StartEndTimerRequestDB{
@@ -69,16 +65,26 @@ func (s *TimerServiceServer) StartTimer(ctx context.Context, req *timer.StartEnd
 }
 
 func (s *TimerServiceServer) EndTimer(ctx context.Context, req *timer.StartEndTimerRequest) (*timer.StartEndTimerResponse, error) {
-	token, err := utils.GetTokenFromMetadata(ctx)
+	/*token, err := utils.GetTokenFromMetadata(ctx)
 
 	//Проверка ошибки при получении
 	if err != nil {
 		log.Printf(err.Error())
-	}
+	}*/
 
 	// Устанавливаем соединение с gRPC сервером Nginx
-	client, err, conn := utils.GrpcConnector(token)
-	defer conn.Close()
+	// Устанавливаем соединение с gRPC сервером Nginx
+	client, err, conn := utils.GRPCServiceConnector(true, dbtimer.NewDbTimerServiceClient)
+	if err != nil {
+		log.Printf("Не удалось подключиться к серверу: %v", err)
+		response := &timer.StartEndTimerResponse{
+			Message: "Не удалось подключиться к серверу: " + err.Error(),
+			Status:  http.StatusInternalServerError,
+		}
+		return response, err
+	} else {
+		defer conn.Close()
+	}
 
 	if err != nil {
 		response := &timer.StartEndTimerResponse{
@@ -116,23 +122,25 @@ func (s *TimerServiceServer) EndTimer(ctx context.Context, req *timer.StartEndTi
 }
 
 func (s *TimerServiceServer) GetWorkingTimer(ctx context.Context, req *timer.WorkingTimerRequest) (*timer.WorkingTimerResponse, error) {
-	token, err := utils.GetTokenFromMetadata(ctx)
+	/*token, err := utils.GetTokenFromMetadata(ctx)
 
 	//Проверка ошибки при получении
 	if err != nil {
 		log.Printf(err.Error())
-	}
+	}*/
 
 	// Устанавливаем соединение с gRPC сервером Nginx
-	client, err, conn := utils.GrpcConnector(token)
-	defer conn.Close()
-
+	// Устанавливаем соединение с gRPC сервером Nginx
+	client, err, conn := utils.GRPCServiceConnector(true, dbtimer.NewDbTimerServiceClient)
 	if err != nil {
+		log.Printf("Не удалось подключиться к серверу: %v", err)
 		response := &timer.WorkingTimerResponse{
 			Message: "Не удалось подключиться к серверу: " + err.Error(),
 			Status:  http.StatusInternalServerError,
 		}
 		return response, err
+	} else {
+		defer conn.Close()
 	}
 
 	dbReq := &dbtimer.WorkingTimerRequestDB{
@@ -163,23 +171,25 @@ func (s *TimerServiceServer) GetWorkingTimer(ctx context.Context, req *timer.Wor
 
 func (s *TimerServiceServer) ChangeTimer(ctx context.Context, req *timer.ChangeTimerRequest) (*timer.ChangeTimerResponse, error) {
 
-	token, err := utils.GetTokenFromMetadata(ctx)
+	/*token, err := utils.GetTokenFromMetadata(ctx)
 
 	//Проверка ошибки при получении
 	if err != nil {
 		log.Printf(err.Error())
-	}
+	}*/
 
 	// Устанавливаем соединение с gRPC сервером Nginx
-	client, err, conn := utils.GrpcConnector(token)
-	defer conn.Close()
-
+	// Устанавливаем соединение с gRPC сервером Nginx
+	client, err, conn := utils.GRPCServiceConnector(true, dbtimer.NewDbTimerServiceClient)
 	if err != nil {
+		log.Printf("Не удалось подключиться к серверу: %v", err)
 		response := &timer.ChangeTimerResponse{
 			Message: "Не удалось подключиться к серверу: " + err.Error(),
 			Status:  http.StatusInternalServerError,
 		}
 		return response, err
+	} else {
+		defer conn.Close()
 	}
 
 	dbReq := &dbtimer.ChangeTimerRequestDB{
@@ -215,23 +225,25 @@ func (s *TimerServiceServer) ChangeTimer(ctx context.Context, req *timer.ChangeT
 
 func (s *TimerServiceServer) AddTimer(ctx context.Context, req *timer.AddTimerRequest) (*timer.AddTimerResponse, error) {
 
-	token, err := utils.GetTokenFromMetadata(ctx)
+	/*token, err := utils.GetTokenFromMetadata(ctx)
 
 	//Проверка ошибки при получении
 	if err != nil {
 		log.Printf(err.Error())
-	}
+	}*/
 
 	// Устанавливаем соединение с gRPC сервером Nginx
-	client, err, conn := utils.GrpcConnector(token)
-	defer conn.Close()
-
+	// Устанавливаем соединение с gRPC сервером Nginx
+	client, err, conn := utils.GRPCServiceConnector(true, dbtimer.NewDbTimerServiceClient)
 	if err != nil {
+		log.Printf("Не удалось подключиться к серверу: %v", err)
 		response := &timer.AddTimerResponse{
 			Message: "Не удалось подключиться к серверу: " + err.Error(),
 			Status:  http.StatusInternalServerError,
 		}
 		return response, err
+	} else {
+		defer conn.Close()
 	}
 
 	dbReq := &dbtimer.AddTimerRequestDB{
@@ -269,20 +281,29 @@ func (s *TimerServiceServer) AddTimer(ctx context.Context, req *timer.AddTimerRe
 func main() {
 	// Инициализируем TCP соединение для gRPC сервера
 
-	port := os.Getenv("AUTH_SERVICE_PORT")
+	// Загружаем переменные из файла .env
+	err := godotenv.Load("/app/.env")
+	if err != nil {
+		log.Fatalf("Ошибка загрузки .env файла: %v", err)
+	}
+
+	port := os.Getenv("TIMER_SERVICE_PORT")
 
 	lis, err := net.Listen("tcp", ":"+port)
 	if err != nil {
 		log.Fatalf("Не удалось запустить сервер: %v", err)
 	}
 
-	var opts []grpc.ServerOption
-	tlsCredentials, err := utils.LoadTLSCredentials()
+	// Загрузка TLS-учетных данных для gRPC и HTTP
+	tlsConfig, err := utils.LoadTLSCredentials()
 	if err != nil {
 		log.Fatalf("Невозможно загрузить учетные данные TLS: %s", err)
 	}
+
+	// Настройки для gRPC
+	var opts []grpc.ServerOption
 	opts = []grpc.ServerOption{
-		grpc.Creds(tlsCredentials), // Добавление TLS опций
+		grpc.Creds(credentials.NewTLS(tlsConfig)), // Добавление TLS опций для gRPC
 		grpc.KeepaliveParams(keepalive.ServerParameters{
 			MaxConnectionIdle:     5 * time.Minute,
 			MaxConnectionAge:      15 * time.Minute,
