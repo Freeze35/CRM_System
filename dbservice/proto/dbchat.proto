@@ -4,6 +4,8 @@ package protobuff;
 
 option go_package = "./dbchat/;dbchat";
 
+import "google/protobuf/timestamp.proto";
+
 service dbChatService {
   rpc CreateChat (CreateChatRequest) returns (CreateChatResponse);
   rpc SaveMessage(SaveMessageRequest) returns (SaveMessageResponse);
@@ -39,16 +41,6 @@ message addUsersToChatResponse{
   uint32 status = 2;         // HTTP-статус ответа
 }
 
-message ChatMessage {
-  int64 user_id = 1;        // ID пользователя
-  int64 chat_id = 2;        // ID чата
-  string message = 3;        // Текст сообщения
-  string db_name = 4;        // Название базы данных
-  int64 created_at = 5;      // Время создания сообщения (timestamp)
-  string response = 6;       // Ответ от сервера
-  uint32 status = 7;         // HTTP-статус ответа
-}
-
 message ConnectUsersToChat{
     repeated UserId UsersId = 1;   // ID пользователей
     int64 chat_id = 2;        // ID чата
@@ -57,9 +49,10 @@ message ConnectUsersToChat{
 
 message SaveMessageRequest {
   string db_name = 1;  // Имя базы данных
-  int64 chat_id = 2;   // ID чата
-  int64 user_id = 3;   // ID пользователя
-  string message = 4;  // Текст сообщения
+  int64 chat_id = 2;      // Идентификатор чата
+  int64 user_id = 3;      // Идентификатор пользователя
+  string content = 4;     // Содержимое сообщения
+  google.protobuf.Timestamp time = 5; // Временная метка
 }
 
 message SaveMessageResponse {

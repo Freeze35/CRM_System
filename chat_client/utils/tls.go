@@ -40,6 +40,7 @@ func LoadTLSCredentials() (*tls.Config, error) {
 		Certificates: []tls.Certificate{serverCert},
 		ClientAuth:   tls.RequireAndVerifyClientCert, // Двусторонняя аутентификация
 		ClientCAs:    certPool,                       // Проверка сертификатов клиентов
+		RootCAs:      certPool,
 	}
 
 	return config, nil

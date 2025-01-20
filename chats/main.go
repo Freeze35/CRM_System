@@ -5,13 +5,12 @@ import (
 	"crmSystem/utils"
 	"errors"
 	"github.com/joho/godotenv"
+	"github.com/streadway/amqp"
 	"log"
 	"net/http"
 	"os"
 	"sync"
 	"time"
-
-	"github.com/streadway/amqp"
 )
 
 // ConnectToRabbitMQ выполняет попытки подключения к RabbitMQ
@@ -19,7 +18,7 @@ func ConnectToRabbitMQ(rabbitMQURL string, retryCount int, retryInterval time.Du
 	var conn *amqp.Connection
 	var err error
 
-	// Загрузите TLS-учетные данные, если необходимо
+	// Загружаем TLS-учетные данные, если необходимо
 	tlsConfig, err := utils.LoadTLSCredentials() // Реализуйте эту функцию для загрузки сертификатов
 	if err != nil {
 		log.Fatalf("Ошибка загрузки TLS-настроек: %v", err)

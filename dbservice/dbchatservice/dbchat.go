@@ -197,7 +197,7 @@ func (s *ChatServiceServer) SaveMessage(ctx context.Context, req *dbchat.SaveMes
 	var createdAt time.Time
 
 	// Выполняем запрос
-	err = dbConnCompany.QueryRowContext(ctx, insertMessageQuery, req.ChatId, req.UserId, req.Message).
+	err = dbConnCompany.QueryRowContext(ctx, insertMessageQuery, req.ChatId, req.UserId, req.Content).
 		Scan(&messageID, &createdAt)
 	if err != nil {
 		log.Printf("Ошибка при сохранении сообщения: %s", err)
@@ -212,7 +212,7 @@ func (s *ChatServiceServer) SaveMessage(ctx context.Context, req *dbchat.SaveMes
 		MessageId: messageID,
 		ChatId:    req.ChatId,
 		UserId:    req.UserId,
-		Message:   req.Message,
+		Message:   req.Content,
 		CreatedAt: createdAt.Unix(),
 		Status:    http.StatusOK,
 	}, nil

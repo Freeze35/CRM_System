@@ -2,13 +2,16 @@ package main
 
 import (
 	"bufio"
+	"bytes"
+	"crmSystem/utils"
 	"crmSystem/utils/types"
 	"encoding/json"
 	"flag"
 	"fmt"
 	"github.com/joho/godotenv"
-	"github.com/streadway/amqp"
+	"io/ioutil"
 	"log"
+	"net/http"
 	"os"
 	"strconv"
 	"time"
@@ -38,148 +41,136 @@ func main() {
 		log.Fatalf("Ошибка конвертации user_id в int64: %v", err)
 	}
 
-	RMQURL := os.Getenv("RABBITMQ_URL")
-
-	conn, err := amqp.Dial(RMQURL)
-	if err != nil {
-		log.Fatalf("Не удалось подключиться к RabbitMQ: %v", err)
-	}
-	defer conn.Close()
-
-	channel, err := conn.Channel()
-	if err != nil {
-		log.Fatalf("Не удалось создать канал: %v", err)
-	}
-	defer channel.Close()
-
-	exchangeName := "chat_exchange_" + strconv.FormatInt(parsedChatID, 10)
-
-	// Создаем обменник fanout
-	err = channel.ExchangeDeclare(
-		exchangeName,
-		"fanout", // Тип обменника
-		true,     // Долговечность
-		false,    // Автоудаление
-		false,    // Внутренний
-		false,    // No-wait
-		nil,      // Аргументы
-	)
-	if err != nil {
-		log.Fatalf("Ошибка создания обменника: %v", err)
+	apiBaseURL := os.Getenv("CHATS_SERVICE_URL")
+	if apiBaseURL == "" {
+		apiBaseURL = "https://nginx:443"
 	}
 
-	// Создаем временную очередь
-	queue, err := channel.QueueDeclare(
-		"",    // Имя очереди (пустое имя создаст временную очередь)
-		false, // Долговечность
-		true,  // Автоудаление
-		true,  // Эксклюзивность
-		false, // No-wait
-		nil,   // Аргументы
-	)
+	// Настраиваем HTTPS-клиент
+	tlsConfig, err := utils.LoadTLSCredentials()
 	if err != nil {
-		log.Fatalf("Ошибка создания очереди: %v", err)
+		log.Fatalf("Ошибка настройки TLS: %v", err)
 	}
 
-	// Привязываем очередь к обменнику
-	err = channel.QueueBind(
-		queue.Name,
-		"",           // Routing key (игнорируется для fanout)
-		exchangeName, // Имя обменника
-		false,
-		nil,
-	)
-	if err != nil {
-		log.Fatalf("Ошибка привязки очереди к обменнику: %v", err)
+	httpClient := &http.Client{
+		Transport: &http.Transport{
+			TLSClientConfig: tlsConfig,
+		},
 	}
 
-	// Запускаем получение сообщений
-	go listenForMessages(channel, queue.Name)
+	// Запускаем чтение сообщений с сервера
+	go listenForMessages(apiBaseURL, parsedChatID, httpClient)
 
 	// Читаем и отправляем сообщения
-	readAndSendMessages(channel, exchangeName, parsedUserID)
+	go readAndSendMessages(apiBaseURL, parsedChatID, parsedUserID, httpClient)
+
+	// Чтобы главный поток не завершался
+	select {}
 }
 
-func listenForMessages(channel *amqp.Channel, queueName string) {
-	messages, err := channel.Consume(
-		queueName, // Имя очереди
-		"",        // Тег потребителя
-		true,      // Auto-ack
-		false,     // Exclusive
-		false,     // No-local
-		false,     // No-wait
-		nil,       // Аргументы
-	)
-	if err != nil {
-		log.Fatalf("Ошибка при получении сообщений: %v", err)
-	}
+func listenForMessages(apiBaseURL string, chatID int64, httpClient *http.Client) {
+	for {
+		// Формируем URL для запроса
+		reqURL := fmt.Sprintf("%s/chats/%d/messages", apiBaseURL, chatID)
 
-	fmt.Println("Ожидание сообщений...")
-
-	for msg := range messages {
-		var message types.ChatMessage
-		err := json.Unmarshal(msg.Body, &message)
-		if err != nil {
-			log.Printf("Ошибка при разборе сообщения: %v", err)
+		// Выполняем HTTP-запрос
+		resp, err := httpClient.Get(reqURL)
+		if err != nil || resp.StatusCode != http.StatusOK {
+			if resp != nil {
+				resp.Body.Close() // Закрываем тело ответа, если есть
+			}
+			time.Sleep(1 / 2 * time.Second) // Задержка перед повторным запросом
 			continue
 		}
-		fmt.Printf("[%s][User %d]: %s\n",
-			message.Time.Format("2006-01-02 15:04:05"),
-			message.UserID, message.Content)
+
+		// Чтение тела ответа
+		body, err := ioutil.ReadAll(resp.Body)
+		resp.Body.Close() // Закрываем тело после чтения
+		if err != nil {
+			time.Sleep(1 / 2 * time.Second)
+			continue
+		}
+
+		// Разбор JSON
+		var messages []types.ChatMessage
+		if err := json.Unmarshal(body, &messages); err != nil {
+			time.Sleep(1 / 2 * time.Second)
+			continue
+		}
+
+		// Вывод сообщений
+		for _, message := range messages {
+			fmt.Printf("[%s][User %d]: %s\n",
+				message.Time.Format("2006-01-02 15:04:05"),
+				message.UserID, message.Content)
+		}
+
+		// Задержка перед следующим запросом
+		time.Sleep(1 / 2 * time.Second)
 	}
 }
 
-func readAndSendMessages(channel *amqp.Channel, exchangeName string, userID int64) {
+func readAndSendMessages(apiBaseURL string, chatID, userID int64, httpClient *http.Client) {
 	fmt.Println("Введите сообщение и нажмите Enter. Для выхода введите 'exit'.")
 
 	reader := bufio.NewReader(os.Stdin)
 	for {
-		fmt.Print("> ") // Показываем приглашение ввода
+		fmt.Print("> ")
 		message, err := reader.ReadString('\n')
 		if err != nil {
 			log.Printf("Ошибка при чтении ввода: %v", err)
 			return
 		}
 
-		// Удаляем символ переноса строки
 		message = message[:len(message)-1]
 
-		// Если "exit" — выходим
 		if message == "exit" {
 			fmt.Println("Выход из чата...")
 			break
 		}
 
-		// Удаляем ввод пользователя из консоли
-		fmt.Print("\033[1A\033[K") // Поднимаемся на одну строку и очищаем её
-
-		// Создаем сообщение
 		chatMessage := types.ChatMessage{
+			ChatID:  chatID,
 			UserID:  userID,
 			Content: message,
 			Time:    time.Now(),
 		}
-
-		// Форматируем сообщение для вывода
 		body, err := json.Marshal(chatMessage)
 		if err != nil {
 			log.Printf("Ошибка при сериализации сообщения: %v", err)
 			continue
 		}
 
-		// Отправляем сообщение
-		err = channel.Publish(
-			exchangeName, // Имя обменника
-			"",           // Routing key
-			false,        // Mandatory
-			false,        // Immediate
-			amqp.Publishing{
-				ContentType: "application/json",
-				Body:        body,
-			},
+		// Формируем HTTPS-запрос для отправки сообщения
+		req, err := http.NewRequest(
+			"POST",
+			fmt.Sprintf("%s/chats/%d/sendMessage", apiBaseURL, chatID),
+			bytes.NewBuffer(body),
 		)
 		if err != nil {
+			log.Printf("Ошибка при создании запроса: %v", err)
+			continue
+		}
+		req.Header.Set("Content-Type", "application/json")
+
+		// Выполняем HTTPS-запрос
+		resp, err := httpClient.Do(req)
+		if err != nil {
 			log.Printf("Ошибка при отправке сообщения: %v", err)
+			continue
+		}
+		defer resp.Body.Close()
+
+		// Read the response body
+		respBody, err := ioutil.ReadAll(resp.Body)
+		if err != nil {
+			log.Printf("Ошибка при чтении тела ответа: %v", err)
+			continue
+		}
+
+		// Check for server error
+		if resp.StatusCode != http.StatusOK {
+			log.Printf("Ошибка от сервера: %s, Статус: %d", respBody, resp.StatusCode)
 		}
 	}
 }

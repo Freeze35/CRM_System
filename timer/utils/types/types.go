@@ -1,5 +1,7 @@
 package types
 
+import "time"
+
 type UserID struct {
 	UserId int64 `json:"user_id"`
 	RoleId int64 `json:"role_id"`
@@ -25,7 +27,8 @@ type ErrorResponse struct {
 }
 
 type ChatMessage struct {
-	ChatID  string `json:"chat_id"`
-	UserID  int64  `json:"user_id"`
-	Content string `json:"content"`
+	ChatID  string    `json:"chat_id"`
+	UserID  int64     `json:"user_id"`
+	Content string    `json:"content"`
+	Time    time.Time `json:"time"`
 }
