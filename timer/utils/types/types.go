@@ -17,17 +17,16 @@ type CreateChatResponse struct {
 	ChatId    int64  `json:"chatId"`
 	DbName    string `json:"dbName"`
 	Message   string `json:"message"`
-	Status    string `json:"status"`
 	CreatedAt string `json:"createdAt"`
 }
 
 type ErrorResponse struct {
 	Message string `json:"message"`
-	Status  uint32 `json:"status"`
 }
 
 type ChatMessage struct {
-	ChatID  string    `json:"chat_id"`
+	DBName  string    `json:"db_name"`
+	ChatID  int64     `json:"chat_id"`
 	UserID  int64     `json:"user_id"`
 	Content string    `json:"content"`
 	Time    time.Time `json:"time"`

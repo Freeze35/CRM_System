@@ -9,16 +9,14 @@ import (
 	"fmt"
 	"github.com/go-playground/validator/v10"
 	"github.com/gorilla/mux"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
 	"log"
 	"net/http"
-	"strings"
 	"time"
 )
-
-type AuthService interface {
-	Login(ctx context.Context) error
-	Auth(ctx context.Context) error
-}
 
 type Handler struct {
 }
@@ -32,8 +30,8 @@ func (h *Handler) InitRouter() *mux.Router {
 
 	authRouts := r.PathPrefix("/auth").Subrouter()
 	{
-		authRouts.HandleFunc("/login", h.Login).Methods(http.MethodPost)
-		authRouts.HandleFunc("/register", h.Register).Methods(http.MethodPost)
+		authRouts.HandleFunc("/login", utils.RecoverMiddleware(h.Login)).Methods(http.MethodPost)
+		authRouts.HandleFunc("/register", utils.RecoverMiddleware(h.Register)).Methods(http.MethodPost)
 		/*books.HandleFunc("/{id:[0-9]+}", h.getBookByID).Methods(http.MethodGet)
 		books.HandleFunc("/{id:[0-9]+}", h.deleteBook).Methods(http.MethodDelete)
 		books.HandleFunc("/{id:[0-9]+}", h.updateBook).Methods(http.MethodPut)*/
@@ -43,6 +41,8 @@ func (h *Handler) InitRouter() *mux.Router {
 }
 
 func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
+
+	//Декодирум поступающий от клиента json
 	var req types.LoginAuthRequest
 	decoder := json.NewDecoder(r.Body)
 	if err := decoder.Decode(&req); err != nil {
@@ -80,8 +80,14 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	//Генерация JWT токена
+	token, err := utils.JwtGenerate()
+	if err != nil {
+		utils.CreateError(w, http.StatusInternalServerError, "Не удалось создать токен ", err)
+	}
+
 	// Устанавливаем соединение с gRPC сервером dbService
-	client, err, conn := utils.GRPCServiceConnector(true, dbauth.NewDbAuthServiceClient)
+	client, err, conn := utils.GRPCServiceConnector(token, dbauth.NewDbAuthServiceClient)
 	if err != nil {
 		log.Printf("Не удалось подключиться к серверу: %v", err)
 		utils.CreateError(w, http.StatusBadRequest, "Ошибка подключения", err)
@@ -91,81 +97,77 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Проводим авторизацию пользователя с запросом к dbservice
-	response, err := loginUser(client, &req)
+	response, responseStatus, err := loginUser(w, client, &req, token)
 	if err != nil {
-		utils.CreateError(w, http.StatusInternalServerError, "Не корректная ошибка на сервере", err)
+		utils.CreateError(w, responseStatus, "Не корректная ошибка на сервере", err)
 		return
 	}
 
 	// Если авторизация прошла успешно, выводим данные
-	if err := utils.WriteJSON(w, response.Status, response); err != nil {
+	if err := utils.WriteJSON(w, http.StatusOK, response); err != nil {
 		utils.CreateError(w, http.StatusInternalServerError, "Не корректная ошибка на сервере", err)
 	}
 }
 
-func loginUser(client dbauth.DbAuthServiceClient, req *types.LoginAuthRequest) (response *types.LoginAuthResponse, err error) {
+func loginUser(w http.ResponseWriter, client dbauth.DbAuthServiceClient, req *types.LoginAuthRequest, token string) (response *types.LoginAuthResponse, responseStatus uint32, err error) {
 
-	// Формируем запрос на регистрацию компании
+	// Формируем запрос на вход в систему
 	reqLogin := &dbauth.LoginDBRequest{
 		Email:    req.Email,
 		Phone:    req.Phone,
 		Password: req.Password,
 	}
 
-	// Создаем контекст с тайм-аутом для запроса
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
+	// Создаем метаданные с токеном
+	md := metadata.Pairs("auth-token", token)
+
+	// Создаем контекст с метаданными
+	ctxWithMetadata := metadata.NewOutgoingContext(context.Background(), md)
+
+	// Устанавливаем тайм-аут для контекста
+	ctxWithMetadata, cancel := context.WithTimeout(ctxWithMetadata, time.Second*10)
 	defer cancel()
 
-	// Выполняем gRPC вызов RegisterCompany
-	resDB, err := client.LoginDB(ctx, reqLogin)
+	// Заголовки из ответа
+	header := metadata.MD{}
 
+	// Выполняем gRPC вызов LoginDB, передавая указатель для получения заголовков
+	resDB, err := client.LoginDB(ctxWithMetadata, reqLogin, grpc.Header(&header))
 	if err != nil {
+		// Получаем сообщение об ошибке
+		errorMessage := status.Convert(err).Message()
 
-		//Проверка на ошибку не авторизованного JWT запроса
-		authCheck := strings.Contains(err.Error(), "401")
-		var message string
-		var status uint32
-		if authCheck {
-			message = "Пользователь не предоставил авторизационный JWT токен. Ошибка 401"
-			status = http.StatusUnauthorized
-		} else {
-			message = err.Error()
-			status = http.StatusInternalServerError
+		// Код ошибки
+		code := status.Code(err)
+
+		// Логика в зависимости от кода ошибки
+		switch code {
+		case codes.Unauthenticated:
+			return nil, http.StatusUnauthorized, fmt.Errorf("неавторизированный запрос : %s", errorMessage)
+		default:
+			return nil, http.StatusInternalServerError, fmt.Errorf("неизвестная ошибка : %s", errorMessage)
 		}
-
-		response := &types.LoginAuthResponse{
-			Message:  "Внутреняя ошибка логинизации: " + message,
-			Database: "",
-			Status:   status,
-		}
-
-		log.Printf("Ошибка при логинизации: %v", err)
-		return response, nil
 	}
 
-	//Получен ответ о логинизации от dbservice
-	token, err := utils.JwtGenerate()
-	if err != nil || resDB.Status != http.StatusOK {
+	// Проверяем наличие метаданных в ответе
+	database := header.Get("database")
+	userID := header.Get("user-id")
+	companyID := header.Get("company-id")
 
-		response = &types.LoginAuthResponse{
-			Message:   resDB.Message,
-			Database:  resDB.Database,
-			CompanyId: resDB.CompanyId,
-			Token:     "",
-			Status:    resDB.Status,
-		}
-		return response, nil
-	} else {
-		response = &types.LoginAuthResponse{
-			Message:   resDB.Message,
-			Database:  resDB.Database,
-			CompanyId: resDB.CompanyId,
-			Token:     token,
-			Status:    resDB.Status,
-		}
-		return response, nil
+	if len(database) == 0 || len(userID) == 0 || len(companyID) == 0 {
+		return nil, http.StatusInternalServerError, fmt.Errorf("отсутствуют необходимые метаданные")
 	}
 
+	// Устанавливаем HttpOnly Cookie
+	utils.AddCookie(w, "auth-token", token)
+	utils.AddCookie(w, "database", database[0])
+	utils.AddCookie(w, "user-id", userID[0])
+	utils.AddCookie(w, "company-id", companyID[0])
+
+	response = &types.LoginAuthResponse{
+		Message: resDB.Message,
+	}
+	return response, http.StatusOK, nil
 }
 
 func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
@@ -209,8 +211,13 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
+	token, err := utils.JwtGenerate()
+	if err != nil {
+		utils.CreateError(w, http.StatusInternalServerError, "Не удалось создать токен ", err)
+	}
+
 	// Устанавливаем соединение с gRPC сервером dbService
-	client, err, conn := utils.GRPCServiceConnector(true, dbauth.NewDbAuthServiceClient)
+	client, err, conn := utils.GRPCServiceConnector(token, dbauth.NewDbAuthServiceClient)
 	if err != nil {
 		log.Printf("Не удалось подключиться к серверу: %v", err)
 		utils.CreateError(w, http.StatusBadRequest, "Ошибка подключения", err)
@@ -220,19 +227,20 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Вызываем метод регистрации компании через gRPC
-	response, err := callRegisterCompany(client, &req, ctx)
+	response, responseStatus, err := callRegisterCompany(w, client, &req, ctx, token)
 	if err != nil {
-		utils.CreateError(w, http.StatusInternalServerError, "Ошибка регистрации компании", err)
+		utils.CreateError(w, responseStatus, "Ошибка регистрации компании", err)
 		return
 	}
 
 	// Если запрос успешно выполнен, возвращаем JSON-ответ
-	if err := utils.WriteJSON(w, response.Status, response); err != nil {
+	if err := utils.WriteJSON(w, http.StatusOK, response); err != nil {
 		utils.CreateError(w, http.StatusInternalServerError, "Ошибка записи ответа", err)
 	}
 }
 
-func callRegisterCompany(client dbauth.DbAuthServiceClient, req *types.RegisterAuthRequest, ctx context.Context) (response *types.RegisterAuthResponse, err error) {
+func callRegisterCompany(w http.ResponseWriter, client dbauth.DbAuthServiceClient,
+	req *types.RegisterAuthRequest, ctx context.Context, token string) (response *types.RegisterAuthResponse, responseStatus uint32, err error) {
 
 	// Создаем контекст с тайм-аутом для запроса
 	// В случае превышения порога ожидания с сервера в 10 секунд будет ошибка контекста.
@@ -248,69 +256,55 @@ func callRegisterCompany(client dbauth.DbAuthServiceClient, req *types.RegisterA
 		Password:    req.Password,
 	}
 
+	// Заголовки из ответа
+	header := metadata.MD{}
+
 	// Выполняем gRPC вызов RegisterCompany
-	resDB, err := client.RegisterCompany(ctx, req1)
+	resDB, err := client.RegisterCompany(ctx, req1, grpc.Header(&header))
 	if err != nil {
 
-		//Проверка на ошибку не авторизованного JWT запроса
-		authCheck := strings.Contains(err.Error(), "401")
-		var message string
-		var status uint32
-		if authCheck {
-			message = "Пользователь не предоставил авторизационный JWT токен. Ошибка 401"
-			status = http.StatusUnauthorized
-		} else {
-			message = err.Error()
-			status = http.StatusInternalServerError
-		}
+		// Получаем сообщение об ошибке
+		errorMessage := status.Convert(err).Message()
 
-		response := &types.RegisterAuthResponse{
-			Message:   "Внутреняя ошибка регистрации: " + message,
-			Database:  "",
-			CompanyId: "",
-			Token:     "",
-			Status:    status,
-		}
+		// Код ошибки
+		code := status.Code(err)
 
-		log.Printf("Ошибка при вызове RegisterCompany: %v", err)
-		return response, nil
+		// Логика в зависимости от кода ошибки
+		switch code {
+		case codes.Unauthenticated:
+			return nil, http.StatusUnauthorized, fmt.Errorf("неавторизированный запрос : %s", errorMessage)
+		case codes.Unimplemented:
+			return nil, http.StatusNotImplemented, fmt.Errorf("неавторизированный запрос : %s", errorMessage)
+		case codes.AlreadyExists:
+			return nil, http.StatusConflict, fmt.Errorf("неавторизированный запрос : %s", errorMessage)
+		default:
+			return nil, http.StatusInternalServerError, fmt.Errorf("внутреняя ошибка регистрации : %s", errorMessage)
+		}
 	}
 
 	/*// Обрабатываем ответ
 	log.Printf("Ответ сервера: Message: %s, Database: %s, Status: %d", res.GetMessage(), res.GetDatabase(), res.GetStatus())*/
 
-	if resDB.Status == http.StatusOK {
-		// Пример успешного ответа с генерированным токеном
-		token, err := utils.JwtGenerate()
-		if err != nil || resDB.Status != http.StatusOK {
+	//Получен ответ о логинизации от dbservice
 
-			response := &types.RegisterAuthResponse{
-				Message:   resDB.Message,
-				Database:  resDB.Database,
-				CompanyId: resDB.CompanyId,
-				Token:     "",
-				Status:    http.StatusOK,
-			}
-			return response, nil
-		} else {
-			response := &types.RegisterAuthResponse{
-				Message:   resDB.Message,
-				Database:  resDB.Database,
-				CompanyId: resDB.CompanyId,
-				Token:     token,
-				Status:    http.StatusOK,
-			}
-			return response, nil
-		}
+	// Проверяем наличие метаданных в ответе
+	database := header.Get("database")
+	userID := header.Get("user-id")
+	companyID := header.Get("company-id")
 
-	} else {
-		response := &types.RegisterAuthResponse{
-			Message:   resDB.Message,
-			Database:  "",
-			CompanyId: "",
-			Token:     "",
-			Status:    resDB.Status,
-		}
-		return response, nil
+	if len(database) == 0 || len(userID) == 0 || len(companyID) == 0 {
+		return nil, http.StatusInternalServerError, fmt.Errorf("отсутствуют необходимые метаданные")
 	}
+
+	// Устанавливаем HttpOnly Cookie
+	utils.AddCookie(w, "auth-token", token)
+	utils.AddCookie(w, "database", database[0])
+	utils.AddCookie(w, "user-id", userID[0])
+	utils.AddCookie(w, "company-id", companyID[0])
+
+	response = &types.RegisterAuthResponse{
+		Message: resDB.Message,
+	}
+	return response, http.StatusOK, nil
+
 }

@@ -18,48 +18,38 @@ message UserId{
 
 message CreateChatRequest {
   repeated UserId users_id = 1;   // ID пользователей
-  string db_name = 2;        // Название базы данных
   string chat_name = 3;        // Название базы данных
 }
 
 message CreateChatResponse {
+  string message = 1;        // Ответ от сервера
   int64 chat_id = 2;        // ID чата
-  string db_name = 3;        // Название базы данных
-  string message = 4;        // Ответ от сервера
-  uint32 status = 5;         // HTTP-статус ответа
-  int64 created_at = 6;      // Время создания сообщения (timestamp)
+  int64 created_at = 3;      // Время создания сообщения (timestamp)
 }
 
 message addUsersToChatRequest{
   repeated UserId UsersId = 1;   // ID пользователей
   int64 chat_id = 2;        // ID чата
-  string db_name = 3;        // Название базы данных
 }
 
 message addUsersToChatResponse{
   string message = 1;        // Ответ от сервера
-  uint32 status = 2;         // HTTP-статус ответа
 }
 
 message ConnectUsersToChat{
     repeated UserId UsersId = 1;   // ID пользователей
     int64 chat_id = 2;        // ID чата
-    string db_name = 3;        // Название базы данных
 }
 
 message SaveMessageRequest {
-  string db_name = 1;  // Имя базы данных
-  int64 chat_id = 2;      // Идентификатор чата
-  int64 user_id = 3;      // Идентификатор пользователя
-  string content = 4;     // Содержимое сообщения
-  google.protobuf.Timestamp time = 5; // Временная метка
+  int64 chat_id = 1;      // Идентификатор чата
+  string content = 2;     // Содержимое сообщения
+  google.protobuf.Timestamp time = 3; // Временная метка
 }
 
 message SaveMessageResponse {
   int64 message_id = 1;  // ID сохранённого сообщения
   int64 chat_id = 2;     // ID чата
-  int64 user_id = 3;     // ID пользователя
   string message = 4;    // Текст сообщения
   int64 created_at = 5;  // Время создания сообщения (UNIX timestamp)
-  int32 status = 6;      // HTTP статус
 }

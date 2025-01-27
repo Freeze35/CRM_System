@@ -14,13 +14,7 @@ import (
 )
 
 // Добавим функцию генерации токена и установим его в gRPC-запрос
-func GRPCServiceConnector[T any](generateToken bool, clientFactory func(grpc.ClientConnInterface) T) (client T, err error, conn *grpc.ClientConn) {
-	// Генерация JWT-токена
-	token, err := JwtGenerate()
-	if err != nil {
-		log.Printf("Не удалось сгенерировать JWT: %v", err)
-		return
-	}
+func GRPCServiceConnector[T any](token string, clientFactory func(grpc.ClientConnInterface) T) (client T, err error, conn *grpc.ClientConn) {
 
 	// Создаем контекст с таймаутом
 	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
@@ -50,11 +44,10 @@ func GRPCServiceConnector[T any](generateToken bool, clientFactory func(grpc.Cli
 		InsecureSkipVerify: false,
 	})
 
-	// Стандартная опция для привязки SSL и проверка на генерацию токена
+	// Стандартная опция для привязки SSL
 	opts := []grpc.DialOption{grpc.WithTransportCredentials(creds)}
-	if generateToken {
-		opts = append(opts, grpc.WithPerRPCCredentials(jwtTokenAuth{token}), grpc.WithBlock())
-	}
+	// Добавляем токен
+	opts = append(opts, grpc.WithPerRPCCredentials(jwtTokenAuth{token}), grpc.WithBlock())
 
 	// Проверяем переменную среды GRPC_PROXY_CONNECTOR
 	proxyConnection := os.Getenv("GRPC_PROXY_CONNECTOR")

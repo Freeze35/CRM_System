@@ -6,8 +6,10 @@ import (
 	"crmSystem/utils"
 	"database/sql"
 	"fmt"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
 	"log"
-	"net/http"
 	"strings"
 	"time"
 )
@@ -25,30 +27,38 @@ func NewGRPCDBChatService(mapConnect *utils.MapConnectionsDB) *ChatServiceServer
 
 // Метод для создания чата и добавления пользователя с транзакцией
 func (s *ChatServiceServer) CreateChat(ctx context.Context, req *dbchat.CreateChatRequest) (*dbchat.CreateChatResponse, error) {
+
+	md, ok := metadata.FromIncomingContext(ctx)
+	if !ok {
+		return nil, status.Errorf(codes.Internal, "Не удалось получить метаданные из контекста")
+	}
+
+	// Извлекаем DatabaseName из метаданных
+	database := md["database"][0] // токен передается как "auth-token"
+	if len(database) == 0 {
+		return nil, status.Errorf(codes.Unauthenticated, "database не найдена в метаданных")
+	}
+
+	// Извлекаем userId из метаданных
+	userId := md["user-id"][0] // токен передается как "auth-token"
+	if len(userId) == 0 {
+		return nil, status.Errorf(codes.Unauthenticated, "userId не найден в метаданных")
+	}
+
 	log.Printf("CreateChat: %s", "CreateChat")
 	// Получаем строку подключения к базе данных
-	dsn := utils.DsnString(req.DbName)
+	dsn := utils.DsnString(database)
 	dbConnCompany, err := s.connectionsMap.GetDb(dsn)
 	if err != nil || dbConnCompany == nil {
 		log.Printf("Ошибка подключения к базе данных: %s", err)
-		return &dbchat.CreateChatResponse{
-			DbName:    req.DbName,
-			Message:   fmt.Sprintf("Ошибка подключения к базе данных: %s", err),
-			Status:    http.StatusInternalServerError,
-			CreatedAt: time.Now().Unix(),
-		}, err
+		return nil, status.Errorf(codes.Internal, fmt.Sprintf("Ошибка подключения к базе данных: %v", err))
 	}
 
 	// Начинаем транзакцию
 	tx, err := dbConnCompany.BeginTx(ctx, nil)
 	if err != nil {
 		log.Printf("Ошибка начала транзакции: %s", err)
-		return &dbchat.CreateChatResponse{
-			DbName:    req.DbName,
-			Message:   fmt.Sprintf("Ошибка начала транзакции: %s", err),
-			Status:    http.StatusInternalServerError,
-			CreatedAt: time.Now().Unix(),
-		}, err
+		return nil, status.Errorf(codes.Internal, fmt.Sprintf("Ошибка начала транзакции: %v", err))
 	}
 
 	// Создаём новый чат
@@ -58,30 +68,19 @@ func (s *ChatServiceServer) CreateChat(ctx context.Context, req *dbchat.CreateCh
 	if err != nil {
 		tx.Rollback()
 		log.Printf("Ошибка создания чата: %s", err)
-		return &dbchat.CreateChatResponse{
-			DbName:    req.DbName,
-			Message:   fmt.Sprintf("Ошибка создания чата: %s", err),
-			Status:    http.StatusInternalServerError,
-			CreatedAt: time.Now().Unix(),
-		}, err
+		return nil, status.Errorf(codes.Internal, fmt.Sprintf("Ошибка создания чата: %v", err))
 	}
 
 	// Завершаем транзакцию на уровне создания чата
 	err = tx.Commit()
 	if err != nil {
 		log.Printf("Ошибка при коммите транзакции создания чата: %s", err)
-		return &dbchat.CreateChatResponse{
-			DbName:    req.DbName,
-			Message:   fmt.Sprintf("Ошибка при коммите создания чата: %s", err),
-			Status:    http.StatusInternalServerError,
-			CreatedAt: time.Now().Unix(),
-		}, err
+		return nil, status.Errorf(codes.Internal, fmt.Sprintf("Ошибка при коммите создания чата: %v", err))
 	}
 
 	// Создаём запрос для добавления пользователей
 	addUsersReq := &dbchat.AddUsersToChatRequest{
 		ChatId:  chatID,
-		DbName:  req.DbName,
 		UsersId: req.UsersId,
 	}
 
@@ -89,35 +88,36 @@ func (s *ChatServiceServer) CreateChat(ctx context.Context, req *dbchat.CreateCh
 	addUsersResp, err := s.AddUsersToChat(ctx, addUsersReq)
 	if err != nil {
 		log.Printf("Ошибка добавления пользователей в чат: %v", err)
-		return &dbchat.CreateChatResponse{
-			ChatId:    chatID,
-			DbName:    req.DbName,
-			Message:   addUsersResp.Message,
-			Status:    http.StatusInternalServerError,
-			CreatedAt: time.Now().Unix(),
-		}, err
+		return nil, status.Errorf(codes.Internal, fmt.Sprintf("Ошибка добавления пользователей в чат: %v", err))
 	}
 
 	// Успешный ответ
 	return &dbchat.CreateChatResponse{
 		ChatId:    chatID,
-		DbName:    req.DbName,
 		Message:   fmt.Sprintf("Чат '%s' успешно создан. %s", req.ChatName, addUsersResp.Message),
-		Status:    http.StatusOK,
 		CreatedAt: time.Now().Unix(),
 	}, nil
 }
 
 func (s *ChatServiceServer) AddUsersToChat(ctx context.Context, req *dbchat.AddUsersToChatRequest) (*dbchat.AddUsersToChatResponse, error) {
+
+	md, ok := metadata.FromIncomingContext(ctx)
+	if !ok {
+		return nil, status.Errorf(codes.Internal, "Не удалось получить метаданные из контекста")
+	}
+
+	// Извлекаем DatabaseName из метаданных
+	database := md["database"][0] // токен передается как "auth-token"
+	if len(database) == 0 {
+		return nil, status.Errorf(codes.Unauthenticated, "database не найдена в метаданных")
+	}
+
 	// Получаем строку подключения к базе данных
-	dsn := utils.DsnString(req.DbName)
+	dsn := utils.DsnString(database)
 	dbConnCompany, err := sql.Open("postgres", dsn)
 	if err != nil {
 		log.Printf("Ошибка подключения к базе данных: %s", err)
-		return &dbchat.AddUsersToChatResponse{
-			Message: fmt.Sprintf("Ошибка подключения к базе данных: %s", err),
-			Status:  http.StatusInternalServerError,
-		}, err
+		return nil, status.Errorf(codes.Internal, fmt.Sprintf("Ошибка подключения к базе данных: %v", err))
 	}
 	defer dbConnCompany.Close()
 
@@ -125,10 +125,7 @@ func (s *ChatServiceServer) AddUsersToChat(ctx context.Context, req *dbchat.AddU
 	tx, err := dbConnCompany.Begin()
 	if err != nil {
 		log.Printf("Ошибка начала транзакции: %s", err)
-		return &dbchat.AddUsersToChatResponse{
-			Message: fmt.Sprintf("Ошибка начала транзакции: %s", err),
-			Status:  http.StatusInternalServerError,
-		}, err
+		return nil, status.Errorf(codes.Internal, fmt.Sprintf("Ошибка начала транзакции: %v", err))
 	}
 
 	// Формируем данные для батчевого запроса
@@ -150,39 +147,47 @@ func (s *ChatServiceServer) AddUsersToChat(ctx context.Context, req *dbchat.AddU
 	if err != nil {
 		tx.Rollback() // Откат транзакции при ошибке
 		log.Printf("Ошибка добавления пользователей в чат: %v", err)
-		return &dbchat.AddUsersToChatResponse{
-			Message: fmt.Sprintf("Ошибка добавления пользователей в чат %s", req.ChatId),
-			Status:  http.StatusInternalServerError,
-		}, err
+		return nil, status.Errorf(codes.Internal, fmt.Sprintf("Ошибка добавления пользователей в чат %v", req.ChatId))
 	}
 
 	// Подтверждаем транзакцию
 	err = tx.Commit()
 	if err != nil {
 		log.Printf("Ошибка подтверждения транзакции: %s", err)
-		return &dbchat.AddUsersToChatResponse{
-			Message: fmt.Sprintf("Ошибка подтверждения транзакции: %s", err),
-			Status:  http.StatusInternalServerError,
-		}, err
+		return nil, status.Errorf(codes.Internal, fmt.Sprintf("Ошибка подтверждения транзакции: %s", err))
 	}
 
 	// Успешный ответ
 	return &dbchat.AddUsersToChatResponse{
-		Message: fmt.Sprintf("Пользователи успешно добавлены в чат %s", req.ChatId),
-		Status:  http.StatusOK,
+		Message: fmt.Sprintf("Пользователи успешно добавлены в чат %v", req.ChatId),
 	}, nil
 }
 
 func (s *ChatServiceServer) SaveMessage(ctx context.Context, req *dbchat.SaveMessageRequest) (*dbchat.SaveMessageResponse, error) {
+
+	md, ok := metadata.FromIncomingContext(ctx)
+	if !ok {
+		return nil, status.Errorf(codes.Internal, "Не удалось получить метаданные из контекста")
+	}
+
+	// Извлекаем DatabaseName из метаданных
+	database := md["database"][0] // токен передается как "auth-token"
+	if len(database) == 0 {
+		return nil, status.Errorf(codes.Unauthenticated, "database не найдена в метаданных")
+	}
+
+	// Извлекаем UserId из метаданных
+	userId := md["user-id"][0] // токен передается как "auth-token"
+	if len(userId) == 0 {
+		return nil, status.Errorf(codes.Unauthenticated, "userId не найдена в метаданных")
+	}
+
 	// Получаем строку подключения к базе данных
-	dsn := utils.DsnString(req.DbName)
+	dsn := utils.DsnString(database)
 	dbConnCompany, err := s.connectionsMap.GetDb(dsn)
 	if err != nil || dbConnCompany == nil {
 		log.Printf("Ошибка подключения к базе данных: %s", err)
-		return &dbchat.SaveMessageResponse{
-			Message: fmt.Sprintf("Ошибка подключения к базе данных: %s", err),
-			Status:  http.StatusInternalServerError,
-		}, err
+		return nil, status.Errorf(codes.Internal, fmt.Sprintf("Ошибка подключения к базе данных: %s", err))
 	}
 
 	// SQL-запрос для вставки сообщения
@@ -197,23 +202,18 @@ func (s *ChatServiceServer) SaveMessage(ctx context.Context, req *dbchat.SaveMes
 	var createdAt time.Time
 
 	// Выполняем запрос
-	err = dbConnCompany.QueryRowContext(ctx, insertMessageQuery, req.ChatId, req.UserId, req.Content).
+	err = dbConnCompany.QueryRowContext(ctx, insertMessageQuery, req.ChatId, userId, req.Content).
 		Scan(&messageID, &createdAt)
 	if err != nil {
 		log.Printf("Ошибка при сохранении сообщения: %s", err)
-		return &dbchat.SaveMessageResponse{
-			Message: fmt.Sprintf("Ошибка при сохранении сообщения: %s", err),
-			Status:  http.StatusInternalServerError,
-		}, err
+		return nil, status.Errorf(codes.Internal, fmt.Sprintf("Ошибка при сохранении сообщения: %s", err))
 	}
 
 	// Успешный ответ
 	return &dbchat.SaveMessageResponse{
 		MessageId: messageID,
 		ChatId:    req.ChatId,
-		UserId:    req.UserId,
 		Message:   req.Content,
 		CreatedAt: createdAt.Unix(),
-		Status:    http.StatusOK,
 	}, nil
 }

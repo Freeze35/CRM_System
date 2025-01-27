@@ -6,6 +6,10 @@ import (
 	"crmSystem/utils"
 	"encoding/json"
 	"fmt"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/types/known/timestamppb"
 	"log"
 	"net/http"
 	"time"
@@ -32,9 +36,9 @@ func (h *Handler) InitRouter() *mux.Router {
 	r := mux.NewRouter()
 	chatsRouts := r.PathPrefix("/chats").Subrouter()
 	{
-		chatsRouts.HandleFunc("/createNewChat", h.CreateNewChat).Methods(http.MethodPost)
-		chatsRouts.HandleFunc("/{chatID}/sendMessage", h.SendMessage).Methods(http.MethodPost)
-		chatsRouts.HandleFunc("/{chatID}/messages", h.GetMessages).Methods(http.MethodGet)
+		chatsRouts.HandleFunc("/createNewChat", utils.RecoverMiddleware(h.CreateNewChat)).Methods(http.MethodPost)
+		chatsRouts.HandleFunc("/{chatID}/sendMessage", utils.RecoverMiddleware(h.SendMessage)).Methods(http.MethodPost)
+		chatsRouts.HandleFunc("/{chatID}/messages", utils.RecoverMiddleware(h.GetMessages)).Methods(http.MethodGet)
 	}
 	return r
 }
@@ -52,11 +56,34 @@ func convertToProtoUsers(users []types.UserID) []*dbchat.UserId {
 
 func (h *Handler) CreateNewChat(w http.ResponseWriter, r *http.Request) {
 
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
+	// Получаем cookie с именами
+	token := utils.GetFromCookies(w, r, "auth-token")
+	if token == "" {
+		return
+	}
+
+	userId := utils.GetFromCookies(w, r, "user-id")
+	if userId == "" {
+		return
+	}
+
+	database := utils.GetFromCookies(w, r, "database")
+	if database == "" {
+		return
+	}
+
+	md := metadata.Pairs(
+		"user-id", userId,
+		"database", database,
+	)
+
+	ctxWithMetadata := metadata.NewOutgoingContext(context.Background(), md)
+
+	ctxWithMetadata, cancel := context.WithTimeout(context.Background(), time.Second*10)
 	defer cancel()
 
 	// Подключение к gRPC серверу dbService
-	client, err, conn := utils.GRPCServiceConnector(true, dbchat.NewDbChatServiceClient)
+	client, err, conn := utils.GRPCServiceConnector(token, dbchat.NewDbChatServiceClient)
 	if err != nil {
 		log.Printf("Не удалось подключиться к серверу: %v", err)
 		utils.CreateError(w, http.StatusBadRequest, "Ошибка подключения к dbchatclient", err)
@@ -74,12 +101,25 @@ func (h *Handler) CreateNewChat(w http.ResponseWriter, r *http.Request) {
 
 	dbReq := &dbchat.CreateChatRequest{
 		UsersId:  convertToProtoUsers(req.UsersId),
-		DbName:   req.DbName,
 		ChatName: req.ChatName,
 	}
 
-	res, err := client.CreateChat(ctx, dbReq)
+	res, err := client.CreateChat(ctxWithMetadata, dbReq)
 	if err != nil {
+		// Получаем сообщение об ошибке
+		errorMessage := status.Convert(err).Message()
+
+		// Код ошибки
+		code := status.Code(err)
+
+		// Логика в зависимости от кода ошибки
+		switch code {
+		case codes.Unauthenticated:
+			utils.CreateError(w, http.StatusBadRequest, fmt.Sprintf("неизвестная ошибка : %s", errorMessage), err)
+
+		default:
+			utils.CreateError(w, http.StatusBadRequest, fmt.Sprintf("ошибка при создании чата,неизвестная ошибка: %s", errorMessage), err)
+		}
 		utils.CreateError(w, http.StatusBadRequest, "Ошибка при создании чата.", err)
 		return
 	}
@@ -92,7 +132,11 @@ func (h *Handler) CreateNewChat(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusOK)
-	w.Write([]byte("Chat created and published to RabbitMQ successfully"))
+	_, err = w.Write([]byte("Чат создан и опубликован в RabbitMQ успешно"))
+	if err != nil {
+		utils.CreateError(w, http.StatusInternalServerError, "Ошибка при записи ответа.", err)
+		return
+	}
 }
 
 func (h *Handler) publishToRabbitMQ(chatID int64, users []types.UserID) error {
@@ -147,7 +191,7 @@ func (h *Handler) publishToRabbitMQ(chatID int64, users []types.UserID) error {
 
 func (h *Handler) SendMessage(w http.ResponseWriter, r *http.Request) {
 
-	log.Printf("LogedSend")
+	//Данные из параметров маршрута /chats/{chatID}
 	vars := mux.Vars(r)
 	chatID := vars["chatID"]
 
@@ -157,48 +201,158 @@ func (h *Handler) SendMessage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	log.Printf("LogedSend1")
+	// Получаем cookie с именами
+	token := utils.GetFromCookies(w, r, "auth-token")
+	if token == "" {
+		return
+	}
 
-	channel, err := h.rabbitMQConn.Channel()
-	if err != nil {
-		utils.CreateError(w, http.StatusInternalServerError, "Ошибка подключения к каналу RabbitMQ", err)
-		return
-	} else {
-		defer channel.Close()
-	}
-	log.Printf("LogedSend2")
-	// Объявление обменника
-	exchangeName := fmt.Sprintf("chat_exchange_%s", chatID)
-	if err := channel.ExchangeDeclare(
-		exchangeName, "fanout", true, false, false, false, nil,
-	); err != nil {
-		utils.CreateError(w, http.StatusInternalServerError, "Ошибка создания обменника", err)
+	userId := utils.GetFromCookies(w, r, "user-id")
+	if userId == "" {
 		return
 	}
-	log.Printf("LogedSend31")
+
+	database := utils.GetFromCookies(w, r, "database")
+	if database == "" {
+		return
+	}
+
+	md := metadata.Pairs(
+		"user-id", userId,
+		"database", database,
+	)
+
+	ctxWithMetadata := metadata.NewOutgoingContext(context.Background(), md)
+
+	ctxWithMetadata, cancel := context.WithTimeout(context.Background(), time.Second*10)
+	defer cancel()
+
+	// Устанавливаем текущее время для сообщения
 	message.Time = time.Now()
-	body, err := json.Marshal(message)
-	if err != nil {
-		utils.CreateError(w, http.StatusInternalServerError, "Ошибка сериализации сообщения", err)
-		return
-	}
-	log.Printf("LogedSend4")
-	// Публикация сообщения
-	if err := channel.Publish(exchangeName, "", false, false, amqp.Publishing{
-		ContentType: "application/json",
-		Body:        body,
-	}); err != nil {
-		utils.CreateError(w, http.StatusInternalServerError, "Ошибка публикации сообщения", err)
-		return
-	}
-	log.Printf("LogedSend5")
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte("Сообщение отправлено"))
 
+	// Канал для сбора ошибок из горутин
+	errChan := make(chan error, 2)
+	defer close(errChan)
+
+	// Асинхронная отправка в RabbitMQ
+	go func() {
+		channel, err := h.rabbitMQConn.Channel()
+		if err != nil {
+			errChan <- fmt.Errorf("Ошибка подключения к каналу RabbitMQ: %v", err)
+			return
+		}
+		defer channel.Close()
+
+		// Объявление обменника
+		exchangeName := fmt.Sprintf("chat_exchange_%s", chatID)
+		if err := channel.ExchangeDeclare(
+			exchangeName, "fanout", true, false, false, false, nil,
+		); err != nil {
+			errChan <- fmt.Errorf("Ошибка создания обменника: %v", err)
+			return
+		}
+
+		// Сериализация сообщения
+		body, err := json.Marshal(message)
+		if err != nil {
+			errChan <- fmt.Errorf("Ошибка сериализации сообщения: %v", err)
+			return
+		}
+
+		// Публикация сообщения
+		if err := channel.Publish(exchangeName, "", false, false, amqp.Publishing{
+			ContentType: "application/json",
+			Body:        body,
+		}); err != nil {
+			errChan <- fmt.Errorf("Ошибка публикации сообщения: %v", err)
+			return
+		}
+
+		errChan <- nil
+	}()
+
+	// Асинхронное сохранение в базу данных через gRPC
+	go func() {
+		client, err, conn := utils.GRPCServiceConnector(token, dbchat.NewDbChatServiceClient)
+		if err != nil {
+			errChan <- fmt.Errorf("Ошибка подключения к gRPC серверу: %v", err)
+			return
+		} else {
+			defer conn.Close()
+		}
+
+		// Формирование запроса
+		req := &dbchat.SaveMessageRequest{
+			ChatId:  message.ChatID,
+			Content: message.Content,
+			Time:    timestamppb.New(message.Time),
+		}
+
+		_, err = client.SaveMessage(ctxWithMetadata, req)
+		if err != nil {
+			log.Printf("Ошибка сохранения сообщения в базе данных: %v", err)
+			errChan <- err
+			return
+		}
+
+		errChan <- nil
+	}()
+
+	// Обработка результатов выполнения горутин
+	var rabbitErr, dbErr error
+	for i := 0; i < 2; i++ {
+		if err := <-errChan; err != nil {
+			if rabbitErr == nil {
+				rabbitErr = err
+			} else {
+				dbErr = err
+			}
+		}
+	}
+
+	// Ответ клиенту в зависимости от результатов
+	if rabbitErr == nil && dbErr == nil {
+		w.WriteHeader(http.StatusOK)
+		w.Write([]byte("Сообщение отправлено и сохранено"))
+	} else if rabbitErr != nil && dbErr != nil {
+		utils.CreateError(w, http.StatusInternalServerError, "Ошибка отправки и сохранения сообщения", fmt.Errorf("%v; %v", rabbitErr, dbErr))
+	} else if rabbitErr != nil {
+		// Получаем сообщение об ошибке
+		errorMessage := status.Convert(rabbitErr).Message()
+
+		// Код ошибки
+		code := status.Code(rabbitErr)
+
+		// Логика в зависимости от кода ошибки
+		switch code {
+		case codes.Unauthenticated:
+			utils.CreateError(w, http.StatusBadRequest, fmt.Sprintf("неизвестная ошибка : %s", errorMessage), rabbitErr)
+		default:
+			utils.CreateError(w, http.StatusInternalServerError, "Ошибка отправки сообщения в RabbitMQ.", rabbitErr)
+		}
+
+	} else {
+		// Получаем сообщение об ошибке
+		errorMessage := status.Convert(rabbitErr).Message()
+
+		// Код ошибки
+		code := status.Code(rabbitErr)
+
+		// Логика в зависимости от кода ошибки
+		switch code {
+		case codes.Unauthenticated:
+			utils.CreateError(w, http.StatusBadRequest, fmt.Sprintf("неизвестная ошибка : %s", errorMessage), rabbitErr)
+		default:
+			utils.CreateError(w, http.StatusInternalServerError, "Ошибка сохранения сообщения в базе данных", dbErr)
+		}
+
+	}
 }
 
 func (h *Handler) GetMessages(w http.ResponseWriter, r *http.Request) {
-	log.Printf("GetMessages started")
+
+	//TODO Add Get FROM DB
+	//Данные из параметров маршрута /chats/{chatID}
 	vars := mux.Vars(r)
 	chatID := vars["chatID"]
 
@@ -262,7 +416,7 @@ loop:
 			}
 			response = append(response, message)
 		case <-timeout:
-			log.Println("Тайм-аут ожидания сообщений")
+			/*log.Println("Тайм-аут ожидания сообщений")*/
 			break loop
 		}
 	}
@@ -284,5 +438,4 @@ loop:
 		return
 	}
 
-	log.Printf("GetMessages completed, messages sent: %d", len(response))
 }

@@ -23,11 +23,7 @@ create-console-test-client:
 	docker build -f ./chat_client/Dockerfile -t chat-client .
 
 test-chat-connections:
-	docker run --rm --network crm_system_crm-network chat-client ./chat_client --chat_id="2" --user_id="2"
-
-proto-auth:
-	protoc --go_out=./auth/proto --go-grpc_out=./auth/proto ./auth/proto/auth.proto
-	protoc --go_out=./auth/proto --go-grpc_out=./auth/proto ./dbservice/proto/dbservice.proto
+	docker run --rm -it --network crm_system_crm-network chat-client ./chat_client --chat_id="7" --user_id="2" --db_name="KJHQdYPSiGCMhbJyaSeKLLQQZ"
 
 proto-dbauth:
 	protoc --go_out=./dbservice/proto --go-grpc_out=./dbservice/proto ./dbservice/proto/dbauth.proto
@@ -49,10 +45,6 @@ proto-redis:
 proto-chats:
 	protoc --go_out=./chats/proto --go-grpc_out=./chats/proto ./chats/proto/chat.proto
 	protoc --go_out=./chats/proto --go-grpc_out=./chats/proto ./dbservice/proto/dbservice.proto
-
-proto-timer:
-	protoc --go_out=./timer/proto --go-grpc_out=./timer/proto ./timer/proto/timer.proto
-	protoc --go_out=./dbservice/proto --go-grpc_out=./dbservice/proto ./timer/proto/timer.proto
 
 proto-email-service:
 	protoc --go_out=./email-service/proto --go-grpc_out=./email-service/proto ./email-service/proto/email.proto

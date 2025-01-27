@@ -21,9 +21,7 @@ service dbTimerService {
 //Раздел для работы с таймером
 
 message StartEndTimerRequestDB{
-  string userId = 1;
-  string dbName = 2;
-  string description = 3;
+  string description = 2;
 }
 
 message StartEndTimerResponseDB{
@@ -31,12 +29,10 @@ message StartEndTimerResponseDB{
   string  end_time = 2;   // Время окончания отсчёта таймера (опционально)
   uint64  timerId = 3;   // id таймера
   string message = 4;
-  uint32 status = 5;
 }
 
 message WorkingTimerRequestDB{
-  string userId = 1;
-  string dbName = 2;
+
 }
 
 message WorkingTimerResponseDB{
@@ -44,12 +40,9 @@ message WorkingTimerResponseDB{
   string  end_time = 2;   // Время окончания отсчёта таймера (опционально)
   uint64  timerId = 3;   // id таймера
   string  message = 4;
-  uint32  status = 5;
 }
 
 message ChangeTimerRequestDB{
-  string userId = 1;
-  string dbName = 2;
   uint64 timerId = 3;
 }
 
@@ -61,12 +54,9 @@ message ChangeTimerResponseDB{
   bool  active = 5;   // Время окончания отсчёта таймера (опционально)
   uint64 timerId = 6;
   string message = 7;
-  uint32 status = 8;
 }
 
 message AddTimerRequestDB{
-  string userId = 1;
-  string dbName = 2;
   string startTime = 3;
   string endTime = 4;
   uint64 timerId = 5;
@@ -80,6 +70,5 @@ message AddTimerResponseDB{
   string description = 4;
   uint64 timerId = 5;
   string message = 6;
-  uint32 status = 7;
 }
 

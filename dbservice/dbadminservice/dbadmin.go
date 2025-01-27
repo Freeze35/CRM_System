@@ -5,7 +5,9 @@ import (
 	pbAdmin "crmSystem/proto/dbadmin"
 	"crmSystem/utils"
 	"fmt"
-	"net/http"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
 	"os"
 	"time"
 )
@@ -62,17 +64,26 @@ func rollbackAdminDB(dbConn *sql.DB, companyId, authUserId int) {
 }*/
 
 func (s AdminServiceServer) RegisterUsersInCompany(ctx context.Context, req *pbAdmin.RegisterUsersRequest) (*pbAdmin.RegisterUsersResponse, error) {
+
+	md, ok := metadata.FromIncomingContext(ctx)
+	if !ok {
+		return nil, status.Errorf(codes.Internal, "Не удалось получить метаданные из контекста")
+	}
+
+	// Извлекаем DatabaseName из метаданных
+	database := md["database"][0] // токен передается как "auth-token"
+	if len(database) == 0 {
+		return nil, status.Errorf(codes.Unauthenticated, "database не найдена в метаданных")
+	}
+
+	// Извлекаем UserId из метаданных
+	userId := md["user-id"][0] // токен передается как "auth-token"
+	if len(userId) == 0 {
+		return nil, status.Errorf(codes.Unauthenticated, "userId не найдена в метаданных")
+	}
+
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
 	defer cancel()
-
-	dbName := req.DbName
-
-	if dbName == "" {
-		return &pbAdmin.RegisterUsersResponse{
-			Message: "Имя базы данных компании не указано",
-			Status:  http.StatusBadRequest,
-		}, fmt.Errorf("имя базы данных компании не указано")
-	}
 
 	CompanyId := req.CompanyId
 
@@ -80,18 +91,12 @@ func (s AdminServiceServer) RegisterUsersInCompany(ctx context.Context, req *pbA
 	dsn := utils.DsnString(authDBName)
 	dbConn, err := s.connectionsMap.GetDb(dsn)
 	if err != nil || dbConn == nil {
-		return &pbAdmin.RegisterUsersResponse{
-			Message: "Ошибка подключения к базе авторизации: " + err.Error(),
-			Status:  http.StatusInternalServerError,
-		}, err
+		return nil, status.Errorf(codes.Internal, fmt.Sprintf("Ошибка подключения к базе авторизации: "+err.Error()))
 	}
 
 	tx, err := dbConn.Begin()
 	if err != nil {
-		return &pbAdmin.RegisterUsersResponse{
-			Message: "Ошибка при начале транзакции: " + err.Error(),
-			Status:  http.StatusInternalServerError,
-		}, err
+		return nil, status.Errorf(codes.Internal, fmt.Sprintf("Ошибка при начале транзакции: "+err.Error()))
 	}
 	defer func() {
 		if err != nil {
@@ -99,21 +104,15 @@ func (s AdminServiceServer) RegisterUsersInCompany(ctx context.Context, req *pbA
 		}
 	}()
 
-	dsnC := utils.DsnString(dbName)
+	dsnC := utils.DsnString(database)
 	dbConnCompany, err := s.connectionsMap.GetDb(dsnC)
 	if err != nil || dbConnCompany == nil {
-		return &pbAdmin.RegisterUsersResponse{
-			Message: "Ошибка подключения к базе компании: " + err.Error(),
-			Status:  http.StatusInternalServerError,
-		}, err
+		return nil, status.Errorf(codes.Internal, fmt.Sprintf("Ошибка подключения к базе компании: "+err.Error()))
 	}
 
 	txc, err := dbConnCompany.Begin()
 	if err != nil {
-		return &pbAdmin.RegisterUsersResponse{
-			Message: "Ошибка при начале транзакции для компании: " + err.Error(),
-			Status:  http.StatusInternalServerError,
-		}, err
+		return nil, status.Errorf(codes.Internal, fmt.Sprintf("Ошибка при начале транзакции для компании: "+err.Error()))
 	}
 	defer func() {
 		if err != nil {
@@ -130,10 +129,7 @@ func (s AdminServiceServer) RegisterUsersInCompany(ctx context.Context, req *pbA
 		RETURNING id`
 	stmtAuth, err := tx.Prepare(authQuery)
 	if err != nil {
-		return &pbAdmin.RegisterUsersResponse{
-			Message: "Ошибка подготовки запроса authusers: " + err.Error(),
-			Status:  http.StatusInternalServerError,
-		}, err
+		return nil, status.Errorf(codes.Internal, fmt.Sprintf("Ошибка подготовки запроса authusers: "+err.Error()))
 	}
 	defer stmtAuth.Close()
 
@@ -160,10 +156,7 @@ func (s AdminServiceServer) RegisterUsersInCompany(ctx context.Context, req *pbA
 				user.RoleId, existingAuthUserId,
 			).Scan(&existingUserId)
 			if err != nil {
-				return &pbAdmin.RegisterUsersResponse{
-					Message: "Ошибка добавления связи пользователя с компанией: " + err.Error(),
-					Status:  http.StatusInternalServerError,
-				}, err
+				return nil, status.Errorf(codes.Internal, fmt.Sprintf("Ошибка добавления связи пользователя с компанией: "+err.Error()))
 			}
 
 			registeredUsers = append(registeredUsers, &pbAdmin.UserResponse{
@@ -179,10 +172,7 @@ func (s AdminServiceServer) RegisterUsersInCompany(ctx context.Context, req *pbA
 		var userId int
 		err = stmtAuth.QueryRow(user.Email, user.Phone, "default_password", CompanyId).Scan(&userId)
 		if err != nil {
-			return &pbAdmin.RegisterUsersResponse{
-				Message: "Ошибка создания пользователя: " + err.Error(),
-				Status:  http.StatusInternalServerError,
-			}, err
+			return nil, status.Errorf(codes.Internal, fmt.Sprintf("Ошибка создания пользователя: "+err.Error()))
 		}
 
 		// Добавляем пользователя в таблицу users
@@ -192,10 +182,7 @@ func (s AdminServiceServer) RegisterUsersInCompany(ctx context.Context, req *pbA
 			user.RoleId, userId,
 		).Scan(&newUserId)
 		if err != nil {
-			return &pbAdmin.RegisterUsersResponse{
-				Message: "Ошибка добавления пользователя в компанию: " + err.Error(),
-				Status:  http.StatusInternalServerError,
-			}, err
+			return nil, status.Errorf(codes.Internal, fmt.Sprintf("Ошибка добавления пользователя в компанию: "+err.Error()))
 		}
 
 		registeredUsers = append(registeredUsers, &pbAdmin.UserResponse{
@@ -209,15 +196,11 @@ func (s AdminServiceServer) RegisterUsersInCompany(ctx context.Context, req *pbA
 	txErr := tx.Commit()
 	txcErr := txc.Commit()
 	if txErr != nil || txcErr != nil {
-		return &pbAdmin.RegisterUsersResponse{
-			Message: "Ошибка при фиксации транзакции: " + fmt.Sprintf("txErr: %v, txcErr: %v", txErr, txcErr),
-			Status:  http.StatusInternalServerError,
-		}, fmt.Errorf("commit errors: txErr=%v, txcErr=%v", txErr, txcErr)
+		return nil, status.Errorf(codes.Internal, fmt.Sprintf("Ошибка при фиксации транзакции: "+fmt.Sprintf("txErr: %v, txcErr: %v", txErr, txcErr)))
 	}
 
 	return &pbAdmin.RegisterUsersResponse{
 		Users:   registeredUsers,
 		Message: "Пользователи успешно добавлены",
-		Status:  http.StatusOK,
 	}, nil
 }

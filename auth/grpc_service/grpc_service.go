@@ -1,14 +1,7 @@
 package grpc_service
 
 import (
-	"context"
 	"crmSystem/proto/auth"
-	"crmSystem/proto/dbauth"
-	"crmSystem/utils"
-	"log"
-	"net/http"
-	"strings"
-	"time"
 )
 
 type AuthServiceServer struct {
@@ -19,7 +12,7 @@ func NewGRPCService() *AuthServiceServer {
 	return &AuthServiceServer{}
 }
 
-func callRegisterCompany(client dbauth.DbAuthServiceClient, req *auth.RegisterAuthRequest, ctx context.Context) (response *auth.RegisterAuthResponse, err error) {
+/*func callRegisterCompany(client dbauth.DbAuthServiceClient, req *auth.RegisterAuthRequest, ctx context.Context) (response *auth.RegisterAuthResponse, err error) {
 
 	// Создаем контекст с тайм-аутом для запроса
 	// В случае превышения порога ожидания с сервера в 10 секунд будет ошибка контекста.
@@ -63,8 +56,8 @@ func callRegisterCompany(client dbauth.DbAuthServiceClient, req *auth.RegisterAu
 		return response, nil
 	}
 
-	/*// Обрабатываем ответ
-	log.Printf("Ответ сервера: Message: %s, Database: %s, Status: %d", res.GetMessage(), res.GetDatabase(), res.GetStatus())*/
+	//Обрабатываем ответ
+	log.Printf("Ответ сервера: Message: %s, Database: %s, Status: %d", res.GetMessage(), res.GetDatabase(), res.GetStatus())
 
 	if resDB.Status == http.StatusOK {
 		// Пример успешного ответа с генерированным токеном
@@ -100,7 +93,7 @@ func callRegisterCompany(client dbauth.DbAuthServiceClient, req *auth.RegisterAu
 		}
 		return response, nil
 	}
-}
+}*/
 
 /*// Register Реализация метода Register, для регистрации организации и пользователя как администратора
 func (s *AuthServiceServer) Register(ctx context.Context, req *auth.RegisterAuthRequest) (*auth.RegisterAuthResponse, error) {*/
@@ -143,7 +136,7 @@ if err != nil {
 return response, nil*/
 /*}*/
 
-func loginUser(client dbauth.DbAuthServiceClient, req *auth.LoginAuthRequest) (response *auth.LoginAuthResponse, err error) {
+/*func loginUser(client dbauth.DbAuthServiceClient, req *auth.LoginAuthRequest) (response *auth.LoginAuthResponse, err error) {
 
 	// Формируем запрос на регистрацию компании
 	reqLogin := &dbauth.LoginDBRequest{
@@ -206,7 +199,7 @@ func loginUser(client dbauth.DbAuthServiceClient, req *auth.LoginAuthRequest) (r
 		return response, nil
 	}
 
-}
+}*/
 
 // Реализация метода Login, для авторизации уже зарегистрированного пользователя в AutorizationDB
 /*func (s *AuthServiceServer) Login(_ context.Context, req *auth.LoginAuthRequest) (*auth.LoginAuthResponse, error) {

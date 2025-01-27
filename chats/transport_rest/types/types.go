@@ -23,10 +23,10 @@ type CreateChatResponse struct {
 
 type ErrorResponse struct {
 	Message string `json:"message"`
-	Status  uint32 `json:"status"`
 }
 
 type ChatMessage struct {
+	DBName  string    `json:"db_name"`
 	ChatID  int64     `json:"chat_id"`
 	UserID  int64     `json:"user_id"`
 	Content string    `json:"content"`

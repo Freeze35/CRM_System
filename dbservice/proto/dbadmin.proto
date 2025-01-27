@@ -23,7 +23,6 @@ message UserResponse {
 
 // Сообщение для массовой регистрации пользователей
   message RegisterUsersRequest {
-  string DbName = 1;
   string CompanyId = 2;
   repeated User users = 3; // Список пользователей для регистрации
 }
@@ -32,7 +31,5 @@ message UserResponse {
 message RegisterUsersResponse {
   repeated UserResponse users = 1; // Список пользователей после регистрации
   string message = 2;           // Сообщение статуса
-  string CompanyId = 3;           // Id организации
-  uint32 status = 4;            // Код состояния HTTP
 }
 

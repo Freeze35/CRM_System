@@ -6,8 +6,10 @@ import (
 	"crmSystem/utils"
 	"database/sql"
 	"fmt"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
 	"log"
-	"net/http"
 	"time"
 )
 
@@ -24,8 +26,25 @@ func NewGRPCDBTimerService(mapConnect *utils.MapConnectionsDB) *TimerServiceServ
 
 func (s *TimerServiceServer) ChangeTimerDB(ctx context.Context, req *dbtimer.ChangeTimerRequestDB) (*dbtimer.ChangeTimerResponseDB, error) {
 
+	md, ok := metadata.FromIncomingContext(ctx)
+	if !ok {
+		return nil, status.Errorf(codes.Internal, "Не удалось получить метаданные из контекста")
+	}
+
+	// Извлекаем DatabaseName из метаданных
+	database := md["database"][0] // токен передается как "auth-token"
+	if len(database) == 0 {
+		return nil, status.Errorf(codes.Unauthenticated, "database не найдена в метаданных")
+	}
+
+	// Извлекаем userId из метаданных
+	userId := md["user-id"][0] // токен передается как "auth-token"
+	if len(userId) == 0 {
+		return nil, status.Errorf(codes.Unauthenticated, "userId не найден в метаданных")
+	}
+
 	// Открываем соединение с базой данных Авторизации
-	dsn := utils.DsnString(req.DbName)
+	dsn := utils.DsnString(database)
 	// Получаем соединение с базой данных
 	db, err := s.connectionsMap.GetDb(dsn)
 	if err != nil {
@@ -33,7 +52,6 @@ func (s *TimerServiceServer) ChangeTimerDB(ctx context.Context, req *dbtimer.Cha
 		log.Printf("Ошибка подключения к базе данных: %s", err)
 		return &dbtimer.ChangeTimerResponseDB{
 			Message: fmt.Sprintf("Ошибка подключения к базе данных: %s.", err), // Сообщение об ошибке.
-			Status:  http.StatusInternalServerError,                            // Статус внутренней ошибки.
 		}, err
 	}
 
@@ -53,14 +71,11 @@ func (s *TimerServiceServer) ChangeTimerDB(ctx context.Context, req *dbtimer.Cha
 				description = CASE WHEN $1 IS NOT NULL AND $1 != '' THEN $1 ELSE description END,
 				end_time = CASE WHEN $2 IS NOT NULL THEN $2 ELSE end_time END
 			WHERE id = $3 RETURNING start_time, end_time,id,duration,description,is_active
-    	`, req.UserId).Scan(&startTime, &endTime, &timerId, &duration, &description, isActive)
+    	`, userId[0]).Scan(&startTime, &endTime, &timerId, &duration, &description, isActive)
 
 	if err != nil {
 		log.Printf("Ошибка при закрытии старого таймера: %s", err)
-		return &dbtimer.ChangeTimerResponseDB{
-			Message: fmt.Sprintf("Ошибка при закрытии старого таймера: %s.", err), // Сообщение об ошибке.
-			Status:  http.StatusInternalServerError,                               // Статус внутренней ошибки.
-		}, err
+		return nil, status.Errorf(codes.Internal, fmt.Sprintf("Ошибка при закрытии старого таймера: %s.", err))
 	}
 
 	// Преобразование времени в строку в формате ISO 8601 (UTC)
@@ -82,7 +97,6 @@ func (s *TimerServiceServer) ChangeTimerDB(ctx context.Context, req *dbtimer.Cha
 		Description: description,
 		Active:      isActive,
 		Message:     fmt.Sprintf("Таймер изменён"), // Сообщение об ошибке.
-		Status:      http.StatusOK,                 // Статус внутренней ошибки.
 	}
 
 	return &res, nil
@@ -91,17 +105,31 @@ func (s *TimerServiceServer) ChangeTimerDB(ctx context.Context, req *dbtimer.Cha
 
 func (s *TimerServiceServer) StartTimerDB(ctx context.Context, req *dbtimer.StartEndTimerRequestDB) (*dbtimer.StartEndTimerResponseDB, error) {
 
+	md, ok := metadata.FromIncomingContext(ctx)
+	if !ok {
+		return nil, status.Errorf(codes.Internal, "Не удалось получить метаданные из контекста")
+	}
+
+	// Извлекаем DatabaseName из метаданных
+	database := md["database"][0] // токен передается как "auth-token"
+	if len(database) == 0 {
+		return nil, status.Errorf(codes.Unauthenticated, "database не найдена в метаданных")
+	}
+
+	// Извлекаем userId из метаданных
+	userId := md["user-id"][0] // токен передается как "auth-token"
+	if len(userId) == 0 {
+		return nil, status.Errorf(codes.Unauthenticated, "userId не найден в метаданных")
+	}
+
 	// Открываем соединение с базой данных Авторизации
-	dsn := utils.DsnString(req.DbName)
+	dsn := utils.DsnString(database)
 	// Получаем соединение с базой данных
 	db, err := s.connectionsMap.GetDb(dsn)
 	if err != nil {
 		// Если произошла ошибка подключения, логируем её и возвращаем ответ с ошибкой.
 		log.Printf("Ошибка подключения к базе данных: %s", err)
-		return &dbtimer.StartEndTimerResponseDB{
-			Message: fmt.Sprintf("Ошибка подключения к базе данных: %s.", err), // Сообщение об ошибке.
-			Status:  http.StatusInternalServerError,                            // Статус внутренней ошибки.
-		}, err
+		return nil, status.Errorf(codes.Internal, fmt.Sprintf("Ошибка подключения к базе данных: %s.", err))
 	}
 
 	// SQL-запрос для проверки существования активного таймера.
@@ -117,15 +145,12 @@ func (s *TimerServiceServer) StartTimerDB(ctx context.Context, req *dbtimer.Star
 	var exists bool
 
 	// Выполняем запрос с параметром user_id и получением открытого таймера exists.
-	err = db.QueryRowContext(ctx, query, req.UserId).Scan(&exists)
+	err = db.QueryRowContext(ctx, query, userId).Scan(&exists)
 
 	if err != nil {
 		// Если произошла ошибка подключения, логируем её и возвращаем ответ с ошибкой.
 		log.Printf("Ошибка запроса к базе данных: %s", err)
-		return &dbtimer.StartEndTimerResponseDB{
-			Message: fmt.Sprintf("Ошибка запроса к базе данных: %s.", err), // Сообщение об ошибке.
-			Status:  http.StatusInternalServerError,                        // Статус внутренней ошибки.
-		}, err
+		return nil, status.Errorf(codes.Internal, fmt.Sprintf("Ошибка запроса к базе данных: %s.", err))
 	}
 
 	// Переменные для хранения значений start_time и end_time
@@ -135,24 +160,18 @@ func (s *TimerServiceServer) StartTimerDB(ctx context.Context, req *dbtimer.Star
 	if exists {
 
 		_, err = db.Exec(`UPDATE user_timers SET end_time = NOW(), 
-				    is_active = FALSE WHERE user_id = $1 AND is_active = TRUE `, req.UserId)
+				    is_active = FALSE WHERE user_id = $1 AND is_active = TRUE `, userId)
 		if err != nil {
 			// Если произошла ошибка подключения, логируем её и возвращаем ответ с ошибкой.
 			log.Printf("Ошибка обновления для закрытия таймера: %s", err)
-			return &dbtimer.StartEndTimerResponseDB{
-				Message: fmt.Sprintf("Ошибка обновления для закрытия таймера: %s.", err), // Сообщение об ошибке.
-				Status:  http.StatusInternalServerError,                                  // Статус внутренней ошибки.
-			}, err
+			return nil, status.Errorf(codes.Internal, fmt.Sprintf("Ошибка обновления для закрытия таймера: %s.", err))
 		}
 
 		// Начало транзакции
 		tx, err := db.Begin()
 		if err != nil {
 			log.Printf("Не удалось начать транзакцию: %s", err)
-			return &dbtimer.StartEndTimerResponseDB{
-				Message: fmt.Sprintf("Не удалось начать транзакцию: %s.", err), // Сообщение об ошибке.
-				Status:  http.StatusInternalServerError,                        // Статус внутренней ошибки.
-			}, err
+			return nil, status.Errorf(codes.Internal, fmt.Sprintf("Не удалось начать транзакцию: %s.", err))
 		}
 
 		// Закрытие старого таймера
@@ -160,39 +179,30 @@ func (s *TimerServiceServer) StartTimerDB(ctx context.Context, req *dbtimer.Star
         UPDATE user_timers
         SET end_time = NOW(), is_active = FALSE
         WHERE user_id = $1 AND is_active = TRUE
-    	`, req.UserId)
+    	`, userId)
 
 		if err != nil {
 			tx.Rollback()
 			log.Printf("Ошибка при закрытии старого таймера: %s", err)
-			return &dbtimer.StartEndTimerResponseDB{
-				Message: fmt.Sprintf("Ошибка при закрытии старого таймера: %s.", err), // Сообщение об ошибке.
-				Status:  http.StatusInternalServerError,                               // Статус внутренней ошибки.
-			}, err
+			return nil, status.Errorf(codes.Internal, fmt.Sprintf("Ошибка при закрытии старого таймера: %s.", err))
 		}
 
 		// Создание нового таймера
 		err = db.QueryRowContext(ctx, `
         INSERT INTO user_timers (user_id, start_time, description, is_active)
         VALUES ($1, NOW(), $2, TRUE) RETURNING start_time, end_time,id
-    	`, req.UserId, req.Description).Scan(&startTime, &endTime, &timerId)
+    	`, userId, req.Description).Scan(&startTime, &endTime, &timerId)
 
 		if err != nil {
 			tx.Rollback()
 			log.Printf("Ошибка при создании нового таймера: %s", err)
-			return &dbtimer.StartEndTimerResponseDB{
-				Message: fmt.Sprintf("Ошибка при создании нового таймера: %s.", err), // Сообщение об ошибке.
-				Status:  http.StatusInternalServerError,                              // Статус внутренней ошибки.
-			}, err
+			return nil, status.Errorf(codes.Internal, fmt.Sprintf("Ошибка при создании нового таймера: %s.", err))
 		}
 
 		// Завершение транзакции
 		if err = tx.Commit(); err != nil {
 			log.Printf("Не удалось зафиксировать транзакцию: %s", err)
-			return &dbtimer.StartEndTimerResponseDB{
-				Message: fmt.Sprintf("Не удалось зафиксировать транзакцию: %s.", err), // Сообщение об ошибке.
-				Status:  http.StatusInternalServerError,                               // Статус внутренней ошибки.
-			}, err
+			return nil, status.Errorf(codes.Internal, fmt.Sprintf("Не удалось зафиксировать транзакцию: %s.", err))
 		}
 
 	} else {
@@ -201,14 +211,12 @@ func (s *TimerServiceServer) StartTimerDB(ctx context.Context, req *dbtimer.Star
 		err = db.QueryRowContext(ctx, `
         INSERT INTO user_timers (user_id, start_time, description, is_active)
         VALUES ($1, NOW(), $2, TRUE) RETURNING start_time, end_time,id
-    	`, req.UserId, req.Description).Scan(&startTime, &endTime, &timerId)
+    	`, userId, req.Description).Scan(&startTime, &endTime, &timerId)
 
 		if err != nil {
 			log.Printf("Ошибка при создании нового таймера: %s", err)
-			return &dbtimer.StartEndTimerResponseDB{
-				Message: fmt.Sprintf("Ошибка при создании нового таймера: %s.", err), // Сообщение об ошибке.
-				Status:  http.StatusInternalServerError,                              // Статус внутренней ошибки.
-			}, err
+			return nil, status.Errorf(codes.Internal, fmt.Sprintf("Ошибка при создании нового таймера: %s.", err))
+
 		}
 	}
 
@@ -228,7 +236,6 @@ func (s *TimerServiceServer) StartTimerDB(ctx context.Context, req *dbtimer.Star
 		EndTime:   endTimeStr,
 		TimerId:   timerId,
 		Message:   fmt.Sprintf("Таймер запушен"), // Сообщение об ошибке.
-		Status:    http.StatusOK,                 // Статус внутренней ошибки.
 	}
 
 	return &res, nil
@@ -236,17 +243,30 @@ func (s *TimerServiceServer) StartTimerDB(ctx context.Context, req *dbtimer.Star
 
 func (s *TimerServiceServer) GetWorkingTimerDB(ctx context.Context, req *dbtimer.WorkingTimerRequestDB) (*dbtimer.WorkingTimerResponseDB, error) {
 
+	md, ok := metadata.FromIncomingContext(ctx)
+	if !ok {
+		return nil, status.Errorf(codes.Internal, "Не удалось получить метаданные из контекста")
+	}
+
+	// Извлекаем DatabaseName из метаданных
+	database := md["database"][0] // токен передается как "auth-token"
+	if len(database) == 0 {
+		return nil, status.Errorf(codes.Unauthenticated, "database не найдена в метаданных")
+	}
+
+	// Извлекаем userId из метаданных
+	userId := md["user-id"][0] // токен передается как "auth-token"
+	if len(userId) == 0 {
+		return nil, status.Errorf(codes.Unauthenticated, "userId не найден в метаданных")
+	}
 	// Открываем соединение с базой данных Авторизации
-	dsn := utils.DsnString(req.DbName)
+	dsn := utils.DsnString(database)
 	// Получаем соединение с базой данных
 	db, err := s.connectionsMap.GetDb(dsn)
 	if err != nil {
 		// Если произошла ошибка подключения, логируем её и возвращаем ответ с ошибкой.
 		log.Printf("Ошибка подключения к базе данных: %s", err)
-		return &dbtimer.WorkingTimerResponseDB{
-			Message: fmt.Sprintf("Ошибка подключения к базе данных: %s.", err), // Сообщение об ошибке.
-			Status:  http.StatusInternalServerError,                            // Статус внутренней ошибки.
-		}, err
+		return nil, status.Errorf(codes.Internal, fmt.Sprintf("Ошибка подключения к базе данных: %s.", err))
 	}
 
 	// SQL-запрос для проверки существования активного таймера.
@@ -261,14 +281,11 @@ func (s *TimerServiceServer) GetWorkingTimerDB(ctx context.Context, req *dbtimer
 	var timerId uint64
 
 	// Выполняем запрос с параметром user_id и получением открытого таймера exists.
-	err = db.QueryRowContext(ctx, query, req.UserId).Scan(&startTime, endTime, timerId)
+	err = db.QueryRowContext(ctx, query, userId).Scan(&startTime, endTime, timerId)
 
 	if err != nil {
 		log.Printf("Ошибка при закрытии старого таймера: %s", err)
-		return &dbtimer.WorkingTimerResponseDB{
-			Message: fmt.Sprintf("Ошибка при закрытии старого таймера: %s.", err), // Сообщение об ошибке.
-			Status:  http.StatusInternalServerError,                               // Статус внутренней ошибки.
-		}, err
+		return nil, status.Errorf(codes.Internal, fmt.Sprintf("Ошибка при закрытии старого таймера: %s.", err))
 	}
 
 	// Преобразование времени в строку в формате ISO 8601 (UTC)
@@ -287,7 +304,6 @@ func (s *TimerServiceServer) GetWorkingTimerDB(ctx context.Context, req *dbtimer
 		EndTime:   endTimeStr,
 		TimerId:   timerId,
 		Message:   fmt.Sprintf("Найден незавершённый таймер"), // Сообщение об ошибке.
-		Status:    http.StatusOK,                              // Статус внутренней ошибки.
 	}
 
 	return &res, nil
@@ -295,17 +311,31 @@ func (s *TimerServiceServer) GetWorkingTimerDB(ctx context.Context, req *dbtimer
 
 func (s *TimerServiceServer) EndTimerDB(ctx context.Context, req *dbtimer.StartEndTimerRequestDB) (*dbtimer.StartEndTimerResponseDB, error) {
 
+	md, ok := metadata.FromIncomingContext(ctx)
+	if !ok {
+		return nil, status.Errorf(codes.Internal, "Не удалось получить метаданные из контекста")
+	}
+
+	// Извлекаем DatabaseName из метаданных
+	database := md["database"][0] // токен передается как "auth-token"
+	if len(database) == 0 {
+		return nil, status.Errorf(codes.Unauthenticated, "database не найдена в метаданных")
+	}
+
+	// Извлекаем userId из метаданных
+	userId := md["user-id"][0] // токен передается как "auth-token"
+	if len(userId) == 0 {
+		return nil, status.Errorf(codes.Unauthenticated, "userId не найден в метаданных")
+	}
+
 	// Открываем соединение с базой данных Авторизации
-	dsn := utils.DsnString(req.DbName)
+	dsn := utils.DsnString(database)
 	// Получаем соединение с базой данных
 	db, err := s.connectionsMap.GetDb(dsn)
 	if err != nil {
 		// Если произошла ошибка подключения, логируем её и возвращаем ответ с ошибкой.
 		log.Printf("Ошибка подключения к базе данных: %s", err)
-		return &dbtimer.StartEndTimerResponseDB{
-			Message: fmt.Sprintf("Ошибка подключения к базе данных: %s.", err), // Сообщение об ошибке.
-			Status:  http.StatusInternalServerError,                            // Статус внутренней ошибки.
-		}, err
+		return nil, status.Errorf(codes.Internal, fmt.Sprintf("Ошибка подключения к базе данных: %s.", err))
 	}
 
 	// Переменные для хранения значений start_time и end_time
@@ -317,14 +347,11 @@ func (s *TimerServiceServer) EndTimerDB(ctx context.Context, req *dbtimer.StartE
         UPDATE user_timers
         SET end_time = NOW(), is_active = FALSE
         WHERE user_id = $1 AND is_active = TRUE RETURNING start_time, end_time,id
-    	`, req.UserId).Scan(&startTime, &endTime, &timerId)
+    	`, userId).Scan(&startTime, &endTime, &timerId)
 
 	if err != nil {
 		log.Printf("Ошибка при закрытии старого таймера: %s", err)
-		return &dbtimer.StartEndTimerResponseDB{
-			Message: fmt.Sprintf("Ошибка при закрытии старого таймера: %s.", err), // Сообщение об ошибке.
-			Status:  http.StatusInternalServerError,                               // Статус внутренней ошибки.
-		}, err
+		return nil, status.Errorf(codes.Internal, fmt.Sprintf("Ошибка при закрытии старого таймера: %s.", err))
 	}
 
 	// Преобразование времени в строку в формате ISO 8601 (UTC)
@@ -343,7 +370,6 @@ func (s *TimerServiceServer) EndTimerDB(ctx context.Context, req *dbtimer.StartE
 		EndTime:   endTimeStr,
 		TimerId:   timerId,
 		Message:   fmt.Sprintf("Таймер завершён"), // Сообщение об ошибке.
-		Status:    http.StatusOK,                  // Статус внутренней ошибки.
 	}
 
 	return &res, nil
@@ -351,17 +377,31 @@ func (s *TimerServiceServer) EndTimerDB(ctx context.Context, req *dbtimer.StartE
 
 func (s *TimerServiceServer) AddTimerDB(ctx context.Context, req *dbtimer.AddTimerRequestDB) (*dbtimer.AddTimerResponseDB, error) {
 
+	md, ok := metadata.FromIncomingContext(ctx)
+	if !ok {
+		return nil, status.Errorf(codes.Internal, "Не удалось получить метаданные из контекста")
+	}
+
+	// Извлекаем DatabaseName из метаданных
+	database := md["database"][0] // токен передается как "auth-token"
+	if len(database) == 0 {
+		return nil, status.Errorf(codes.Unauthenticated, "database не найдена в метаданных")
+	}
+
+	// Извлекаем userId из метаданных
+	userId := md["user-id"][0] // токен передается как "auth-token"
+	if len(userId) == 0 {
+		return nil, status.Errorf(codes.Unauthenticated, "userId не найден в метаданных")
+	}
+
 	// Открываем соединение с базой данных Авторизации
-	dsn := utils.DsnString(req.DbName)
+	dsn := utils.DsnString(database)
 	// Получаем соединение с базой данных
 	db, err := s.connectionsMap.GetDb(dsn)
 	if err != nil {
 		// Если произошла ошибка подключения, логируем её и возвращаем ответ с ошибкой.
 		log.Printf("Ошибка подключения к базе данных: %s", err)
-		return &dbtimer.AddTimerResponseDB{
-			Message: fmt.Sprintf("Ошибка подключения к базе данных: %s.", err), // Сообщение об ошибке.
-			Status:  http.StatusInternalServerError,                            // Статус внутренней ошибки.
-		}, err
+		return nil, status.Errorf(codes.Internal, fmt.Sprintf("Ошибка подключения к базе данных: %s.", err))
 	}
 
 	// Переменные для хранения значений start_time и end_time
@@ -373,14 +413,11 @@ func (s *TimerServiceServer) AddTimerDB(ctx context.Context, req *dbtimer.AddTim
 	err = db.QueryRowContext(ctx, `
         INSERT INTO user_timers (user_id, start_time,end_time_time, description)
         VALUES ($1, NOW(), $2) RETURNING start_time, end_time,id, duration,description
-    	`, req.UserId, &req.StartTime, &req.EndTime, &req.Description).Scan(&startTime, &endTime, &timerId, &duration, &description)
+    	`, userId, &req.StartTime, &req.EndTime, &req.Description).Scan(&startTime, &endTime, &timerId, &duration, &description)
 
 	if err != nil {
 		log.Printf("Ошибка при создании нового таймера: %s", err)
-		return &dbtimer.AddTimerResponseDB{
-			Message: fmt.Sprintf("Ошибка при создании нового таймера: %s.", err), // Сообщение об ошибке.
-			Status:  http.StatusInternalServerError,                              // Статус внутренней ошибки.
-		}, err
+		return nil, status.Errorf(codes.Internal, fmt.Sprintf("Ошибка при создании нового таймера: %s.", err))
 	}
 
 	// Преобразование времени в строку в формате ISO 8601 (UTC)
@@ -401,7 +438,6 @@ func (s *TimerServiceServer) AddTimerDB(ctx context.Context, req *dbtimer.AddTim
 		Duration:    duration,
 		Description: description,
 		Message:     fmt.Sprintf("Таймер добавлен"), // Сообщение об ошибке.
-		Status:      http.StatusOK,                  // Статус внутренней ошибки.
 	}
 
 	return &res, nil

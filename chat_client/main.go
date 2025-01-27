@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"os"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -24,12 +25,14 @@ func main() {
 		log.Fatalf("Ошибка загрузки .env файла: %v", err)
 	}
 
+	//Данные через командную строку при запуске программы
 	chatID := flag.String("chat_id", "", "ID чата")
 	userID := flag.String("user_id", "", "ID пользователя")
+	dbName := flag.String("db_name", "", "Имя Базы Данных")
 	flag.Parse()
 
-	if *chatID == "" || *userID == "" {
-		log.Fatal("Параметры chat_id и user_id обязательны")
+	if *chatID == "" || *userID == "" || *dbName == "" {
+		log.Fatal("Параметры chat_id,user_id,dbName обязательны")
 	}
 
 	parsedChatID, err := strconv.ParseInt(*chatID, 10, 64)
@@ -59,16 +62,16 @@ func main() {
 	}
 
 	// Запускаем чтение сообщений с сервера
-	go listenForMessages(apiBaseURL, parsedChatID, httpClient)
+	go listenForMessages(apiBaseURL, parsedChatID, parsedUserID, httpClient)
 
 	// Читаем и отправляем сообщения
-	go readAndSendMessages(apiBaseURL, parsedChatID, parsedUserID, httpClient)
+	go readAndSendMessages(apiBaseURL, parsedChatID, parsedUserID, *dbName, httpClient)
 
 	// Чтобы главный поток не завершался
 	select {}
 }
 
-func listenForMessages(apiBaseURL string, chatID int64, httpClient *http.Client) {
+func listenForMessages(apiBaseURL string, chatID int64, userID int64, httpClient *http.Client) {
 	for {
 		// Формируем URL для запроса
 		reqURL := fmt.Sprintf("%s/chats/%d/messages", apiBaseURL, chatID)
@@ -79,7 +82,7 @@ func listenForMessages(apiBaseURL string, chatID int64, httpClient *http.Client)
 			if resp != nil {
 				resp.Body.Close() // Закрываем тело ответа, если есть
 			}
-			time.Sleep(1 / 2 * time.Second) // Задержка перед повторным запросом
+			time.Sleep(500 * time.Millisecond) // Задержка перед повторным запросом
 			continue
 		}
 
@@ -87,30 +90,34 @@ func listenForMessages(apiBaseURL string, chatID int64, httpClient *http.Client)
 		body, err := ioutil.ReadAll(resp.Body)
 		resp.Body.Close() // Закрываем тело после чтения
 		if err != nil {
-			time.Sleep(1 / 2 * time.Second)
+			time.Sleep(500 * time.Millisecond)
 			continue
 		}
 
 		// Разбор JSON
 		var messages []types.ChatMessage
 		if err := json.Unmarshal(body, &messages); err != nil {
-			time.Sleep(1 / 2 * time.Second)
+			time.Sleep(500 * time.Millisecond)
 			continue
 		}
 
 		// Вывод сообщений
 		for _, message := range messages {
+			// Игнорируем сообщения от текущего пользователя
+			if message.UserID == userID {
+				continue
+			}
 			fmt.Printf("[%s][User %d]: %s\n",
 				message.Time.Format("2006-01-02 15:04:05"),
 				message.UserID, message.Content)
 		}
 
 		// Задержка перед следующим запросом
-		time.Sleep(1 / 2 * time.Second)
+		time.Sleep(500 * time.Millisecond)
 	}
 }
 
-func readAndSendMessages(apiBaseURL string, chatID, userID int64, httpClient *http.Client) {
+func readAndSendMessages(apiBaseURL string, chatID, userID int64, dbName string, httpClient *http.Client) {
 	fmt.Println("Введите сообщение и нажмите Enter. Для выхода введите 'exit'.")
 
 	reader := bufio.NewReader(os.Stdin)
@@ -122,7 +129,7 @@ func readAndSendMessages(apiBaseURL string, chatID, userID int64, httpClient *ht
 			return
 		}
 
-		message = message[:len(message)-1]
+		message = strings.TrimSpace(message)
 
 		if message == "exit" {
 			fmt.Println("Выход из чата...")
@@ -130,6 +137,7 @@ func readAndSendMessages(apiBaseURL string, chatID, userID int64, httpClient *ht
 		}
 
 		chatMessage := types.ChatMessage{
+			DBName:  dbName,
 			ChatID:  chatID,
 			UserID:  userID,
 			Content: message,
@@ -171,6 +179,11 @@ func readAndSendMessages(apiBaseURL string, chatID, userID int64, httpClient *ht
 		// Check for server error
 		if resp.StatusCode != http.StatusOK {
 			log.Printf("Ошибка от сервера: %s, Статус: %d", respBody, resp.StatusCode)
+			continue
 		}
+
+		// Форматированный вывод отправленного сообщения
+		fmt.Printf("[You][%s]: %s\n",
+			time.Now().Format("2006-01-02 15:04:05"), message)
 	}
 }

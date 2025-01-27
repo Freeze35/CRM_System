@@ -10,17 +10,13 @@ import (
 	"fmt"
 	"github.com/go-playground/validator/v10"
 	"github.com/gorilla/mux"
+	"google.golang.org/grpc/metadata"
 	"log"
 	"net/http"
 	"strings"
 	"sync"
 	"time"
 )
-
-type AuthService interface {
-	Login(ctx context.Context) error
-	Auth(ctx context.Context) error
-}
 
 type Handler struct {
 }
@@ -34,7 +30,7 @@ func (h *Handler) InitRouter() *mux.Router {
 
 	books := r.PathPrefix("/admin").Subrouter()
 	{
-		books.HandleFunc("/addusers", h.AddUsers).Methods(http.MethodPost)
+		books.HandleFunc("/addusers", utils.RecoverMiddleware(h.AddUsers)).Methods(http.MethodPost)
 		/*books.HandleFunc("/{id:[0-9]+}", h.getBookByID).Methods(http.MethodGet)
 		books.HandleFunc("/{id:[0-9]+}", h.deleteBook).Methods(http.MethodDelete)
 		books.HandleFunc("/{id:[0-9]+}", h.updateBook).Methods(http.MethodPut)*/
@@ -67,9 +63,31 @@ func (h *Handler) AddUsers(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	// Получаем cookie с именами
+	token := utils.GetFromCookies(w, r, "auth-token")
+	if token == "" {
+		return
+	}
+
+	userId := utils.GetFromCookies(w, r, "user-id")
+	if userId == "" {
+		return
+	}
+
+	database := utils.GetFromCookies(w, r, "database")
+	if database == "" {
+		return
+	}
+
+	md := metadata.Pairs(
+		"user-id", userId,
+		"database", database,
+	)
+
+	ctxWithMetadata := metadata.NewOutgoingContext(context.Background(), md)
 
 	// Устанавливаем соединение с gRPC сервером dbService
-	client, err, conn := utils.GRPCServiceConnector(true, dbadmin.NewDbAdminServiceClient)
+	client, err, conn := utils.GRPCServiceConnector(token, dbadmin.NewDbAdminServiceClient)
 	if err != nil {
 		log.Printf("Не удалось подключиться к серверу: %v", err)
 		utils.CreateError(w, http.StatusBadRequest, "Ошибка подключения", err)
@@ -78,21 +96,8 @@ func (h *Handler) AddUsers(w http.ResponseWriter, r *http.Request) {
 		defer conn.Close()
 	}
 
-	if err != nil {
-		response := &dbadmin.RegisterUsersResponse{
-			Message:   "Не удалось подключиться к серверу : " + err.Error(),
-			Users:     []*dbadmin.UserResponse{},
-			CompanyId: "",
-			Status:    http.StatusInternalServerError,
-		}
-		if err := utils.WriteJSON(w, response.Status, response); err != nil {
-			utils.CreateError(w, http.StatusInternalServerError, "Не корректная ошибка на сервере.", err)
-		}
-		return
-	}
-
 	//Вызываем регистрацию пользователя на dbservice
-	response, err := callAddUsers(client, &reqUsers)
+	response, err := callAddUsers(ctxWithMetadata, client, &reqUsers)
 	if err != nil {
 		utils.CreateError(w, http.StatusInternalServerError, "Не корректная ошибка на сервере.", err)
 		return
@@ -106,7 +111,7 @@ func (h *Handler) AddUsers(w http.ResponseWriter, r *http.Request) {
 	}*/
 
 	// Устанавливаем соединение с gRPC сервером dbService
-	clientEmail, err, conn := utils.GRPCServiceConnector(true, email.NewEmailServiceClient)
+	clientEmail, err, conn := utils.GRPCServiceConnector(token, email.NewEmailServiceClient)
 	if err != nil {
 		log.Printf("Не удалось подключиться к серверу: %v", err)
 		utils.CreateError(w, http.StatusBadRequest, "Ошибка подключения", err)
@@ -169,11 +174,10 @@ func (h *Handler) AddUsers(w http.ResponseWriter, r *http.Request) {
 	// Ответ с результатом отправки
 	sendMessageResponse := &types.SendEmailResponse{
 		Message:  responseMessage,
-		Status:   http.StatusOK,
 		Failures: failuresString, // Если ошибки есть, передаем их как строку
 	}
 
-	if err := utils.WriteJSON(w, sendMessageResponse.Status, sendMessageResponse); err != nil {
+	if err := utils.WriteJSON(w, http.StatusOK, sendMessageResponse); err != nil {
 		utils.CreateError(w, http.StatusInternalServerError, "Не корректная ошибка на сервере.", err)
 	}
 }
@@ -211,20 +215,19 @@ func transformUsersConcurrently(users []*types.User) []*dbadmin.User {
 	return transformedUsers
 }
 
-func callAddUsers(client dbadmin.DbAdminServiceClient, req *types.RegisterUsersRequest) (response *dbadmin.RegisterUsersResponse, err error) {
+func callAddUsers(ctxWithMetadata context.Context, client dbadmin.DbAdminServiceClient, req *types.RegisterUsersRequest) (response *dbadmin.RegisterUsersResponse, err error) {
 
 	reqRegisterUsers := &dbadmin.RegisterUsersRequest{
-		DbName:    req.DbName,
 		CompanyId: req.CompanyId,
 		Users:     transformUsersConcurrently(req.Users),
 	}
 
 	// Создаем контекст с тайм-аутом для запроса
-	ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
+	ctxWithMetadata, cancel := context.WithTimeout(context.Background(), time.Second*10)
 	defer cancel()
 
 	// Выполняем gRPC вызов RegisterCompanyq
-	resDB, err := client.RegisterUsersInCompany(ctx, reqRegisterUsers)
+	resDB, err := client.RegisterUsersInCompany(ctxWithMetadata, reqRegisterUsers)
 
 	if err != nil {
 		log.Printf("Ошибка при добавлении пользователя: %v", err)
@@ -234,10 +237,8 @@ func callAddUsers(client dbadmin.DbAdminServiceClient, req *types.RegisterUsersR
 	}
 
 	response = &dbadmin.RegisterUsersResponse{
-		Message:   resDB.Message,
-		Users:     resDB.Users,
-		CompanyId: resDB.CompanyId,
-		Status:    resDB.Status,
+		Message: resDB.Message,
+		Users:   resDB.Users,
 	}
 	return response, nil
 
@@ -260,7 +261,6 @@ func sendToEmailUser(client email.EmailServiceClient, req *types.SendEmailReques
 
 	response = &email.SendEmailResponse{
 		Message: resDB.Message,
-		Status:  resDB.Status,
 	}
 
 	return response, err

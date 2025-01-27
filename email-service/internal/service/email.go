@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 	"log"
-	"net/http"
 	"net/smtp"
 	"os"
 
@@ -52,7 +51,6 @@ func (s *EmailService) SendEmail(_ context.Context, req *pb.SendEmailRequest) (*
 
 	// Ответ сразу, без ожидания отправки
 	return &pb.SendEmailResponse{
-		Status:  http.StatusOK,
 		Message: "Сообщение принято в обработку на отправку",
 	}, nil
 }

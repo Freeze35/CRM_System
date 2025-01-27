@@ -8,13 +8,11 @@ type SendEmailRequest struct {
 
 type SendEmailResponse struct {
 	Message  string `json:"message"`
-	Status   uint32 `json:"status"`
 	Failures string `json:"failures"`
 }
 
 type ErrorResponse struct {
 	Message string `json:"message"`
-	Status  uint32 `json:"status"`
 }
 
 type User struct {
@@ -40,5 +38,4 @@ type RegisterUsersResponse struct {
 	Message   string         `json:"message"`
 	Users     []UserResponse `json:"userResponse"` // Исправлено users вместо userResponse
 	CompanyId string         `json:"companyId"`    // Исправлено на CompanyId
-	Status    uint32         `json:"status"`       // Исправлено на status
 }

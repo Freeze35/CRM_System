@@ -48,7 +48,7 @@ services:
     depends_on:
       - db
     ports:
-      - "8081:8081"  # Это для локальной отладки, не обязательно
+      - "8081:8081"
     networks:
       - crm-network
 
@@ -61,7 +61,7 @@ services:
     depends_on:
       - db
     ports:
-      - "50020:50020"  # Это для локальной отладки, не обязательно
+      - "50020:50020"
     networks:
       - crm-network
 
