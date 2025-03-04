@@ -68,7 +68,7 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Валидация структуры
-	err = validate.Struct(req) // Исправление: используем req, а не пустую структуру
+	err = validate.Struct(req)
 	if err != nil {
 		// Если есть ошибки валидации, разбираем их и сразу отправляем ошибку
 		validationErrors := err.(validator.ValidationErrors)

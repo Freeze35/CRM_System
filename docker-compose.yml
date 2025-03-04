@@ -99,27 +99,57 @@ services:
       - crm-network
 
   email-service:
-      build:
-        context: . # Путь к директории с Dockerfile
-        dockerfile: ./email-service/Dockerfile # Указываем Dockerfile
-      depends_on:
-        - rabbitmq
-        - db
-      ports:
-        - "50051:50051"
-      networks:
-        - crm-network
+    build:
+      context: . # Путь к директории с Dockerfile
+      dockerfile: ./email-service/Dockerfile # Указываем Dockerfile
+    depends_on:
+      - rabbitmq
+      - db
+    ports:
+      - "50051:50051"
+    networks:
+      - crm-network
 
   chats:
-      build:
-        context: . # Путь к директории с Dockerfile
-        dockerfile: ./chats/Dockerfile # Указываем Dockerfile
-      depends_on:
-        - rabbitmq
-      ports:
-        - "50095:50095"
-      networks:
-        - crm-network
+    build:
+      context: . # Путь к директории с Dockerfile
+      dockerfile: ./chats/Dockerfile # Указываем Dockerfile
+    depends_on:
+      - rabbitmq
+    ports:
+      - "50095:50095"
+    networks:
+      - crm-network
+
+  #Логировщик-микросервис
+  logs:
+    build:
+      context: . # Путь к директории с Dockerfile
+      dockerfile: ./logs/Dockerfile # Указываем Dockerfile
+    ports:
+      - "50150:50150"
+    restart: always
+
+  #Хранение логов
+  loki:
+    build:
+      context: .
+      dockerfile: ./loki/Dockerfile  # Путь к Dockerfile для Loki
+    ports:
+      - "3100:3100"  # Порт для Loki
+
+  #Визуализатор логов
+  grafana:
+    image: grafana/grafana:10.2.2
+    ports:
+      - "3200:3200"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+    restart: always
+    depends_on:
+      - loki
+
 volumes:
   db-data:  # Определяем volume db-data
   redis_data:  # Объем данных для Redis

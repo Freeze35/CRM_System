@@ -326,7 +326,6 @@ func registerCompany(server *AuthServiceServer, req *dbauth.RegisterCompanyReque
 		Database  string
 		CompanyId string
 		UserId    string
-		Status    uint32
 	}
 
 	if resRedis.Status == http.StatusOK {
@@ -480,7 +479,6 @@ func registerCompany(server *AuthServiceServer, req *dbauth.RegisterCompanyReque
 			Database:  newDbName,
 			UserId:    newUserId,
 			CompanyId: companyId,
-			Status:    http.StatusInternalServerError,
 		}
 
 		toJsonRedis, err := utils.ConvertStructToJSON(toJsonType)
