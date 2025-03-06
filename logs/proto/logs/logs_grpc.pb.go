@@ -19,15 +19,17 @@ import (
 const _ = grpc.SupportPackageIsVersion9
 
 const (
-	LogsService_SayHello_FullMethodName = "/protobuff.logsService/SayHello"
+	LogsService_SaveLogs_FullMethodName = "/protobuff.LogsService/SaveLogs"
 )
 
 // LogsServiceClient is the client API for LogsService service.
 //
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
+//
+// Определяем gRPC-сервис LogsService
 type LogsServiceClient interface {
-	// Метод, аналогичный HTTP GET "/"
-	SayHello(ctx context.Context, in *HelloRequest, opts ...grpc.CallOption) (*HelloResponse, error)
+	// Метод для сохранения логов в Loki
+	SaveLogs(ctx context.Context, in *LogRequest, opts ...grpc.CallOption) (*LogResponse, error)
 }
 
 type logsServiceClient struct {
@@ -38,10 +40,10 @@ func NewLogsServiceClient(cc grpc.ClientConnInterface) LogsServiceClient {
 	return &logsServiceClient{cc}
 }
 
-func (c *logsServiceClient) SayHello(ctx context.Context, in *HelloRequest, opts ...grpc.CallOption) (*HelloResponse, error) {
+func (c *logsServiceClient) SaveLogs(ctx context.Context, in *LogRequest, opts ...grpc.CallOption) (*LogResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(HelloResponse)
-	err := c.cc.Invoke(ctx, LogsService_SayHello_FullMethodName, in, out, cOpts...)
+	out := new(LogResponse)
+	err := c.cc.Invoke(ctx, LogsService_SaveLogs_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -51,9 +53,11 @@ func (c *logsServiceClient) SayHello(ctx context.Context, in *HelloRequest, opts
 // LogsServiceServer is the server API for LogsService service.
 // All implementations must embed UnimplementedLogsServiceServer
 // for forward compatibility.
+//
+// Определяем gRPC-сервис LogsService
 type LogsServiceServer interface {
-	// Метод, аналогичный HTTP GET "/"
-	SayHello(context.Context, *HelloRequest) (*HelloResponse, error)
+	// Метод для сохранения логов в Loki
+	SaveLogs(context.Context, *LogRequest) (*LogResponse, error)
 	mustEmbedUnimplementedLogsServiceServer()
 }
 
@@ -64,8 +68,8 @@ type LogsServiceServer interface {
 // pointer dereference when methods are called.
 type UnimplementedLogsServiceServer struct{}
 
-func (UnimplementedLogsServiceServer) SayHello(context.Context, *HelloRequest) (*HelloResponse, error) {
-	return nil, status.Errorf(codes.Unimplemented, "method SayHello not implemented")
+func (UnimplementedLogsServiceServer) SaveLogs(context.Context, *LogRequest) (*LogResponse, error) {
+	return nil, status.Errorf(codes.Unimplemented, "method SaveLogs not implemented")
 }
 func (UnimplementedLogsServiceServer) mustEmbedUnimplementedLogsServiceServer() {}
 func (UnimplementedLogsServiceServer) testEmbeddedByValue()                     {}
@@ -88,20 +92,20 @@ func RegisterLogsServiceServer(s grpc.ServiceRegistrar, srv LogsServiceServer) {
 	s.RegisterService(&LogsService_ServiceDesc, srv)
 }
 
-func _LogsService_SayHello_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(HelloRequest)
+func _LogsService_SaveLogs_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(LogRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(LogsServiceServer).SayHello(ctx, in)
+		return srv.(LogsServiceServer).SaveLogs(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: LogsService_SayHello_FullMethodName,
+		FullMethod: LogsService_SaveLogs_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(LogsServiceServer).SayHello(ctx, req.(*HelloRequest))
+		return srv.(LogsServiceServer).SaveLogs(ctx, req.(*LogRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -110,12 +114,12 @@ func _LogsService_SayHello_Handler(srv interface{}, ctx context.Context, dec fun
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
 var LogsService_ServiceDesc = grpc.ServiceDesc{
-	ServiceName: "protobuff.logsService",
+	ServiceName: "protobuff.LogsService",
 	HandlerType: (*LogsServiceServer)(nil),
 	Methods: []grpc.MethodDesc{
 		{
-			MethodName: "SayHello",
-			Handler:    _LogsService_SayHello_Handler,
+			MethodName: "SaveLogs",
+			Handler:    _LogsService_SaveLogs_Handler,
 		},
 	},
 	Streams:  []grpc.StreamDesc{},

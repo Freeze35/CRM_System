@@ -1,8 +1,11 @@
 package main
 
 import (
-	"context"
+	logsservice "crmSystem/service"
+	"crmSystem/utils"
 	"fmt"
+	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/keepalive"
 	"log"
 	"net"
 	"net/url"
@@ -13,35 +16,8 @@ import (
 	"github.com/grafana/loki-client-go/loki"
 	"github.com/grafana/loki-client-go/pkg/urlutil"
 	"github.com/joho/godotenv"
-	"github.com/prometheus/common/model"
 	"google.golang.org/grpc"
 )
-
-// GreeterServer реализует интерфейс gRPC-сервера
-type GreeterServer struct {
-	pb.UnimplementedLogsServiceServer
-	lokiClient *loki.Client
-}
-
-func (s *GreeterServer) SayHello(ctx context.Context, req *pb.HelloRequest) (*pb.HelloResponse, error) {
-	// Логирование в Loki
-	labels := model.LabelSet{
-		model.LabelName("job"):     model.LabelValue("go-microservice"),
-		model.LabelName("level"):   model.LabelValue("info"),
-		model.LabelName("handler"): model.LabelValue("say_hello"),
-	}
-	logMsg := fmt.Sprintf("Получен gRPC запрос от %s", req.GetName())
-	err := s.lokiClient.Handle(labels, time.Now(), logMsg)
-	if err != nil {
-		return nil, err
-	}
-
-	// Ответ клиенту
-	resp := &pb.HelloResponse{
-		Message: "Привет! Это микросервис на Go.",
-	}
-	return resp, nil
-}
 
 func main() {
 	// Загружаем переменные из .env файла
@@ -58,30 +34,55 @@ func main() {
 		log.Fatal(err) // Handle error properly
 	}
 
+	CertClient := utils.LokiHttpCertClient()
+
 	// Создаем клиента для отправки логов в Loki
 	client, err := loki.New(loki.Config{
 		URL:       urlutil.URLValue{URL: parsedURL}, // URL Loki
 		BatchWait: 5 * time.Second,
 		BatchSize: 1000,
+		Timeout:   time.Duration(10) * time.Second,
+		Client:    *CertClient,
 	})
+
 	if err != nil {
 		log.Fatalf("Ошибка создания клиента Loki: %v", err)
 	}
 	defer client.Stop()
 
-	// Создаем gRPC-сервер
-	grpcServer := grpc.NewServer()
-	server := &GreeterServer{lokiClient: client}
-
-	// Регистрируем сервис
-	pb.RegisterLogsServiceServer(grpcServer, server)
-
-	// Запуск сервера на порту :8080
-	lis, err := net.Listen("tcp", fmt.Sprintf(":%s", os.Getenv("LOGS_SERVICE_HTTP_PORT")))
+	grpcPort := os.Getenv("LOGS_SERVICE_HTTP_PORT")
+	lis, err := net.Listen("tcp", ":"+grpcPort)
 	if err != nil {
-		log.Fatalf("Ошибка запуска listener: %v", err)
+		log.Fatalf("Не удалось запустить сервер: %v", err)
 	}
-	log.Println("gRPC сервер запускается на :8080...")
+
+	// Загрузка TLS-учетных данных для gRPC и HTTP
+	tlsConfig, err := utils.LoadTLSCredentials()
+	if err != nil {
+		log.Fatalf("Невозможно загрузить учетные данные TLS: %s", err)
+	}
+
+	// Настройки для gRPC
+	var opts []grpc.ServerOption
+	opts = []grpc.ServerOption{
+		grpc.Creds(credentials.NewTLS(tlsConfig)), // Добавление TLS опций для gRPC
+		grpc.KeepaliveParams(keepalive.ServerParameters{
+			MaxConnectionIdle:     5 * time.Minute,
+			MaxConnectionAge:      15 * time.Minute,
+			MaxConnectionAgeGrace: 5 * time.Minute,
+			Time:                  5 * time.Second, // Таймаут на соединение
+		}),
+	}
+
+	// Создаем gRPC сервер
+	grpcServer := grpc.NewServer(opts...)
+
+	// Регистрируем AdminService с привязкой к общему переданному пулу соединений
+	logsService := logsservice.NewGRPCDBLogsService(lokiURL)
+	pb.RegisterLogsServiceServer(grpcServer, logsService)
+
+	// Запуск сервера
+	log.Println(fmt.Sprintf("gRPC сервер запускается на %s", os.Getenv("LOGS_SERVICE_HTTP_PORT")))
 	if err := grpcServer.Serve(lis); err != nil {
 		log.Fatalf("Ошибка запуска gRPC сервера: %v", err)
 	}

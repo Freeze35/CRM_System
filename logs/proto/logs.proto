@@ -4,18 +4,20 @@ package protobuff;
 
 option go_package = "./logs/;logs";
 
-service logsService {
-  // Метод, аналогичный HTTP GET "/"
-  rpc SayHello (HelloRequest) returns (HelloResponse) {}
+// Определяем gRPC-сервис LogsService
+service LogsService {
+  // Метод для сохранения логов в Loki
+  rpc SaveLogs (LogRequest) returns (LogResponse);
 }
 
-// Сообщение запроса
-message HelloRequest {
-  string name = 1; // Опционально: имя клиента
+// Запрос с лог-сообщением
+message LogRequest {
+  string name = 1;         // Имя сервиса или отправителя лога
+  string level = 2;        // Уровень лога (info, warning, error и т. д.)
+  string message = 3;      // Само лог-сообщение
 }
 
-// Сообщение ответа
-message HelloResponse {
-  string message = 1; // Ответ, например, "Привет! Это микросервис на Go."
+// Ответ от сервиса
+message LogResponse {
+  string message = 1; // Ответ об успешном сохранении лога
 }
-

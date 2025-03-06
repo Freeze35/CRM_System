@@ -2,9 +2,13 @@
 up:
 	docker-compose up --build
 
-# Остановка контейнеров
+# Остановить контейнеры и не сохранять их состояние
 down:
 	docker-compose down
+
+# Остановка контейнеров
+stop:
+	docker-compose stop
 
 # Пересобрать контейнеры
 rebuild:
@@ -109,3 +113,4 @@ auth-ssl:
 	openssl x509 -req -in ./chat_client/sslkeys/server.csr -CA ./rootca/ca.crt -CAkey ./rootca/ca.key -CAcreateserial -out ./chat_client/sslkeys/server.pem -days 3650 -sha256 -extfile ./rootca/ssl.cnf -extensions req_ext
 	openssl x509 -req -in ./redis/sslkeys/server.csr -CA ./rootca/ca.crt -CAkey ./rootca/ca.key -CAcreateserial -out ./redis/sslkeys/server.pem -days 3650 -sha256 -extfile ./rootca/ssl.cnf -extensions req_ext
 	openssl x509 -req -in ./logs/sslkeys/server.csr -CA ./rootca/ca.crt -CAkey ./rootca/ca.key -CAcreateserial -out ./logs/sslkeys/server.pem -days 3650 -sha256 -extfile ./rootca/ssl.cnf -extensions req_ext
+	openssl x509 -req -in ./loki/sslkeys/server.csr -CA ./rootca/ca.crt -CAkey ./rootca/ca.key -CAcreateserial -out ./loki/sslkeys/server.pem -days 3650 -sha256 -extfile ./rootca/ssl.cnf -extensions req_ext

@@ -21,6 +21,7 @@ services:
       - ./auth/.env
     depends_on:
       - db
+    restart: always
     ports:
       - "50055:50055"
     networks:
@@ -34,6 +35,7 @@ services:
       - ./admin_control/.env
     depends_on:
       - db
+    restart: always
     ports:
       - "50070:50070"
     networks:
@@ -49,6 +51,7 @@ services:
       - db
     ports:
       - "8081:8081"
+    restart: always
     networks:
       - crm-network
 
@@ -62,6 +65,7 @@ services:
       - db
     ports:
       - "50020:50020"
+    restart: always
     networks:
       - crm-network
 
@@ -72,6 +76,7 @@ services:
     ports:
       - "80:80"
       - "443:443"
+    restart: always
     networks:
       - crm-network
 
@@ -82,6 +87,7 @@ services:
     ports:
       - "50060:50060" # Пробрасываем порт для gRPC сервиса
       - "6379:6379"   # Пробрасываем порт для Redis (если требуется доступ извне)
+    restart: always
     volumes:
       - redis_data:/data # Хранилище данных Redis
     networks:
@@ -92,6 +98,7 @@ services:
     ports:
       - "5672:5672"
       - "15672:15672"
+    restart: always
     environment:
       RABBITMQ_DEFAULT_USER: adminrmq
       RABBITMQ_DEFAULT_PASS: passconnectmq
@@ -105,6 +112,7 @@ services:
     depends_on:
       - rabbitmq
       - db
+    restart: always
     ports:
       - "50051:50051"
     networks:
@@ -116,6 +124,7 @@ services:
       dockerfile: ./chats/Dockerfile # Указываем Dockerfile
     depends_on:
       - rabbitmq
+    restart: always
     ports:
       - "50095:50095"
     networks:
@@ -129,6 +138,9 @@ services:
     ports:
       - "50150:50150"
     restart: always
+    networks:
+      - crm-network
+
 
   #Хранение логов
   loki:
@@ -137,18 +149,23 @@ services:
       dockerfile: ./loki/Dockerfile  # Путь к Dockerfile для Loki
     ports:
       - "3100:3100"  # Порт для Loki
+    restart: always
+    networks:
+      - crm-network
 
   #Визуализатор логов
   grafana:
     image: grafana/grafana:10.2.2
     ports:
-      - "3200:3200"
+      - "3000:3000"
     environment:
       - GF_SECURITY_ADMIN_USER=admin
       - GF_SECURITY_ADMIN_PASSWORD=admin
     restart: always
     depends_on:
       - loki
+    networks:
+      - crm-network
 
 volumes:
   db-data:  # Определяем volume db-data

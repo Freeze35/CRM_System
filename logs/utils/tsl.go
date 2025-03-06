@@ -4,6 +4,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"fmt"
+	"github.com/prometheus/common/config"
 	"io/ioutil"
 )
 
@@ -15,6 +16,7 @@ const (
 
 // LoadTLSCredentials загружает TLS-учетные данные для сервера.
 func LoadTLSCredentials() (*tls.Config, error) {
+	fmt.Sprintf("LoadTLSCredentials" + ServerCertFile)
 	// Загрузка сертификата CA сервера
 	pemServerCA, err := ioutil.ReadFile(ClientCACertFile)
 	if err != nil {
@@ -41,4 +43,18 @@ func LoadTLSCredentials() (*tls.Config, error) {
 	}
 
 	return config, nil
+}
+
+func LokiHttpCertClient() *config.HTTPClientConfig {
+
+	ConfigCert := config.HTTPClientConfig{
+		TLSConfig: config.TLSConfig{
+			CAFile:             ClientCACertFile,
+			CertFile:           ServerCertFile,
+			KeyFile:            ServerKeyFile,
+			InsecureSkipVerify: false,
+		},
+	}
+
+	return &ConfigCert
 }

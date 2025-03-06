@@ -1,41 +1,84 @@
-package dbadminservice
+package logsservice
 
 import (
+	"bytes"
+	"context"
 	pb "crmSystem/proto/logs"
+	"encoding/json"
 	"fmt"
-	"github.com/grafana/loki-client-go/loki"
-	"github.com/prometheus/common/model"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
+	"net/http"
 	"time"
 )
 
+// LogsServer реализует gRPC сервис для сохранения логов в Loki
 type LogsServer struct {
 	pb.UnimplementedLogsServiceServer
-	lokiClient *loki.Client
+	lokiURL string
+	client  *http.Client
 }
 
-func NewGRPCDBLogsService(lokiClient *loki.Client) *LogsServer {
+// Структура запроса для Loki
+type lokiStream struct {
+	Stream map[string]string `json:"stream"`
+	Values [][2]string       `json:"values"`
+}
+
+type lokiPayload struct {
+	Streams []lokiStream `json:"streams"`
+}
+
+// NewGRPCDBLogsService создает новый инстанс gRPC сервиса логов
+func NewGRPCDBLogsService(lokiURL string) *LogsServer {
 	return &LogsServer{
-		lokiClient: lokiClient,
+		lokiURL: lokiURL,
+		client:  &http.Client{Timeout: 5 * time.Second},
 	}
 }
 
-func (s LogsServer) SaveLogs(req *pb.HelloRequest) (*pb.HelloResponse, error) {
-	// Логирование в Loki
-	labels := model.LabelSet{
-		model.LabelName("job"):     model.LabelValue("go-microservice"),
-		model.LabelName("level"):   model.LabelValue("info"),
-		model.LabelName("handler"): model.LabelValue("say_hello"),
+// SaveLogs обрабатывает запросы на сохранение логов
+func (s *LogsServer) SaveLogs(ctx context.Context, req *pb.LogRequest) (*pb.LogResponse, error) {
+	// Создание payload для Loki
+	payload := lokiPayload{
+		Streams: []lokiStream{
+			{
+				Stream: map[string]string{
+					"job":   req.Name,
+					"level": req.Level,
+				},
+				Values: [][2]string{
+					{fmt.Sprintf("%d", time.Now().UnixNano()), req.Message},
+				},
+			},
+		},
 	}
-	logMsg := fmt.Sprintf("Получен gRPC запрос от %s", req.GetName())
 
-	err := s.lokiClient.Handle(labels, time.Now(), logMsg)
+	// Кодирование JSON
+	data, err := json.Marshal(payload)
 	if err != nil {
-		return nil, err
+		return nil, status.Errorf(codes.Internal, "Ошибка кодирования JSON: %v", err)
 	}
 
-	// Ответ клиенту
-	resp := &pb.HelloResponse{
-		Message: "Лог сохранён.",
+	// Отправка запроса в Loki
+	url := fmt.Sprintf("%s/loki/api/v1/push", s.lokiURL)
+	reqHTTP, err := http.NewRequest("POST", url, bytes.NewBuffer(data))
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "Ошибка создания запроса: %v", err)
 	}
-	return resp, nil
+	reqHTTP.Header.Set("Content-Type", "application/json")
+
+	resp, err := s.client.Do(reqHTTP)
+	if err != nil {
+		return nil, status.Errorf(codes.Internal, "Ошибка отправки запроса: %v", err)
+	}
+	defer resp.Body.Close()
+
+	// Проверка статуса ответа
+	if resp.StatusCode != http.StatusNoContent {
+		return nil, status.Errorf(codes.Internal, "Ошибка Loki: статус %d", resp.StatusCode)
+	}
+
+	// Успешный ответ
+	return &pb.LogResponse{Message: "Лог сохранен."}, nil
 }

@@ -26,3 +26,7 @@ DNS.6 = redis
 DNS.7 = email-service
 DNS.8 = rabbitmq
 DNS.9 = chat-client
+DNS.10 = logs
+DNS.11 = loki
+DNS.12 = grafana
+DNS.13 = chats
