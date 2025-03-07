@@ -3,9 +3,11 @@ package dbchatservice
 import (
 	"context"
 	"crmSystem/proto/dbchat"
+	"crmSystem/proto/logs"
 	"crmSystem/utils"
 	"database/sql"
 	"fmt"
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
@@ -33,15 +35,47 @@ func (s *ChatServiceServer) CreateChat(ctx context.Context, req *dbchat.CreateCh
 		return nil, status.Errorf(codes.Internal, "Не удалось получить метаданные из контекста")
 	}
 
+	token, err := utils.ExtractTokenFromContext(ctx)
+	if err != nil {
+		log.Printf("Не удалось извлечь токен для логирования: %v", err)
+		return nil, status.Errorf(codes.Unauthenticated, "Не удалось извлечь токен для логирования")
+	}
+
+	// Устанавливаем соединение с gRPC сервером Logs
+	clientLogs, err, conn := utils.GRPCServiceConnector(token, logs.NewLogsServiceClient)
+	if err != nil {
+		log.Printf("Не удалось подключиться к серверу: %v", err)
+		return nil, status.Errorf(codes.Unauthenticated, "Не удалось создать соединение с сервером Logs")
+	} else {
+		defer func(conn *grpc.ClientConn) {
+			err := conn.Close()
+			if err != nil {
+				log.Printf("Ошибка закрытия соединения: %v", err)
+				errLogs := utils.SaveLogsError(ctx, clientLogs, "", "", err.Error())
+				if errLogs != nil {
+					log.Printf("Ошибка закрытия соединения: %v", err)
+				}
+			}
+		}(conn)
+	}
+
 	// Извлекаем DatabaseName из метаданных
 	database := md["database"][0] // токен передается как "auth-token"
 	if len(database) == 0 {
+		errLogs := utils.SaveLogsError(ctx, clientLogs, "", "", "database не найдена в метаданных")
+		if errLogs != nil {
+			log.Printf("database не найдена в метаданных: %v", err)
+		}
 		return nil, status.Errorf(codes.Unauthenticated, "database не найдена в метаданных")
 	}
 
 	// Извлекаем userId из метаданных
 	userId := md["user-id"][0] // токен передается как "auth-token"
 	if len(userId) == 0 {
+		errLogs := utils.SaveLogsError(ctx, clientLogs, "", "", "userId не найден в метаданных")
+		if errLogs != nil {
+			log.Printf("userId не найден в метаданных: %v", err)
+		}
 		return nil, status.Errorf(codes.Unauthenticated, "userId не найден в метаданных")
 	}
 
@@ -50,6 +84,10 @@ func (s *ChatServiceServer) CreateChat(ctx context.Context, req *dbchat.CreateCh
 	dsn := utils.DsnString(database)
 	dbConnCompany, err := s.connectionsMap.GetDb(dsn)
 	if err != nil || dbConnCompany == nil {
+		errLogs := utils.SaveLogsError(ctx, clientLogs, database, userId, fmt.Sprintf("Ошибка подключения к базе данных: %v", database))
+		if errLogs != nil {
+			log.Printf("Ошибка подключения к базе данных: %v", err)
+		}
 		log.Printf("Ошибка подключения к базе данных: %s", err)
 		return nil, status.Errorf(codes.Internal, fmt.Sprintf("Ошибка подключения к базе данных: %v", err))
 	}
@@ -57,6 +95,10 @@ func (s *ChatServiceServer) CreateChat(ctx context.Context, req *dbchat.CreateCh
 	// Начинаем транзакцию
 	tx, err := dbConnCompany.BeginTx(ctx, nil)
 	if err != nil {
+		errLogs := utils.SaveLogsError(ctx, clientLogs, "", "", err.Error())
+		if errLogs != nil {
+			log.Printf("Ошибка начала транзакции: %v", err)
+		}
 		log.Printf("Ошибка начала транзакции: %s", err)
 		return nil, status.Errorf(codes.Internal, fmt.Sprintf("Ошибка начала транзакции: %v", err))
 	}
@@ -66,7 +108,14 @@ func (s *ChatServiceServer) CreateChat(ctx context.Context, req *dbchat.CreateCh
 	var chatID int64
 	err = tx.QueryRowContext(ctx, createChatQuery, req.ChatName).Scan(&chatID)
 	if err != nil {
-		tx.Rollback()
+		err := tx.Rollback()
+		if err != nil {
+			return nil, err
+		}
+		errLogs := utils.SaveLogsError(ctx, clientLogs, database, userId, fmt.Sprintf("Ошибка создания чата"))
+		if errLogs != nil {
+			log.Printf("Ошибка создания чата: %v", err)
+		}
 		log.Printf("Ошибка создания чата: %s", err)
 		return nil, status.Errorf(codes.Internal, fmt.Sprintf("Ошибка создания чата: %v", err))
 	}
@@ -74,6 +123,10 @@ func (s *ChatServiceServer) CreateChat(ctx context.Context, req *dbchat.CreateCh
 	// Завершаем транзакцию на уровне создания чата
 	err = tx.Commit()
 	if err != nil {
+		errLogs := utils.SaveLogsError(ctx, clientLogs, database, userId, err.Error())
+		if errLogs != nil {
+			log.Printf("Ошибка при коммите транзакции создания чата: %v", err)
+		}
 		log.Printf("Ошибка при коммите транзакции создания чата: %s", err)
 		return nil, status.Errorf(codes.Internal, fmt.Sprintf("Ошибка при коммите создания чата: %v", err))
 	}
@@ -85,8 +138,12 @@ func (s *ChatServiceServer) CreateChat(ctx context.Context, req *dbchat.CreateCh
 	}
 
 	// Вызываем метод AddUsersToChat
-	addUsersResp, err := s.AddUsersToChat(ctx, addUsersReq)
+	addUsersResp, err := s.AddUsersToChat(ctx, addUsersReq, clientLogs, userId)
 	if err != nil {
+		errLogs := utils.SaveLogsError(ctx, clientLogs, database, userId, err.Error())
+		if errLogs != nil {
+			log.Printf("Ошибка добавления пользователей в чат: %v", err)
+		}
 		log.Printf("Ошибка добавления пользователей в чат: %v", err)
 		return nil, status.Errorf(codes.Internal, fmt.Sprintf("Ошибка добавления пользователей в чат: %v", err))
 	}
@@ -99,7 +156,7 @@ func (s *ChatServiceServer) CreateChat(ctx context.Context, req *dbchat.CreateCh
 	}, nil
 }
 
-func (s *ChatServiceServer) AddUsersToChat(ctx context.Context, req *dbchat.AddUsersToChatRequest) (*dbchat.AddUsersToChatResponse, error) {
+func (s *ChatServiceServer) AddUsersToChat(ctx context.Context, req *dbchat.AddUsersToChatRequest, clientLogs logs.LogsServiceClient, userId string) (*dbchat.AddUsersToChatResponse, error) {
 
 	md, ok := metadata.FromIncomingContext(ctx)
 	if !ok {
@@ -116,14 +173,30 @@ func (s *ChatServiceServer) AddUsersToChat(ctx context.Context, req *dbchat.AddU
 	dsn := utils.DsnString(database)
 	dbConnCompany, err := sql.Open("postgres", dsn)
 	if err != nil {
+		errLogs := utils.SaveLogsError(ctx, clientLogs, database, userId, err.Error())
+		if errLogs != nil {
+			log.Printf("Ошибка подключения к базе данных: %v", err)
+		}
 		log.Printf("Ошибка подключения к базе данных: %s", err)
 		return nil, status.Errorf(codes.Internal, fmt.Sprintf("Ошибка подключения к базе данных: %v", err))
 	}
-	defer dbConnCompany.Close()
+	defer func(dbConnCompany *sql.DB) {
+		err := dbConnCompany.Close()
+		if err != nil {
+			errLogs := utils.SaveLogsError(ctx, clientLogs, database, userId, err.Error())
+			if errLogs != nil {
+				log.Printf("Ошибка закрытия соединения: %v", err)
+			}
+		}
+	}(dbConnCompany)
 
 	// Начало транзакции
 	tx, err := dbConnCompany.Begin()
 	if err != nil {
+		errLogs := utils.SaveLogsError(ctx, clientLogs, database, userId, err.Error())
+		if errLogs != nil {
+			log.Printf("Ошибка начала транзакции: %v", err)
+		}
 		log.Printf("Ошибка начала транзакции: %s", err)
 		return nil, status.Errorf(codes.Internal, fmt.Sprintf("Ошибка начала транзакции: %v", err))
 	}
@@ -145,7 +218,14 @@ func (s *ChatServiceServer) AddUsersToChat(ctx context.Context, req *dbchat.AddU
 	// Выполняем батч-запрос
 	_, err = tx.ExecContext(ctx, addUserQuery, values...)
 	if err != nil {
-		tx.Rollback() // Откат транзакции при ошибке
+		err := tx.Rollback()
+		if err != nil {
+			return nil, status.Errorf(codes.Internal, fmt.Sprintf("Ошибка закрытия канала %v", err.Error()))
+		} // Откат транзакции при ошибке
+		errLogs := utils.SaveLogsError(ctx, clientLogs, database, userId, "Ошибка добавления пользователей в чат")
+		if errLogs != nil {
+			log.Printf("Откат транзакции при ошибке: %v", err)
+		}
 		log.Printf("Ошибка добавления пользователей в чат: %v", err)
 		return nil, status.Errorf(codes.Internal, fmt.Sprintf("Ошибка добавления пользователей в чат %v", req.ChatId))
 	}
@@ -153,6 +233,10 @@ func (s *ChatServiceServer) AddUsersToChat(ctx context.Context, req *dbchat.AddU
 	// Подтверждаем транзакцию
 	err = tx.Commit()
 	if err != nil {
+		errLogs := utils.SaveLogsError(ctx, clientLogs, database, userId, err.Error())
+		if errLogs != nil {
+			log.Printf("Ошибка подтверждения транзакции: %v", err)
+		}
 		log.Printf("Ошибка подтверждения транзакции: %s", err)
 		return nil, status.Errorf(codes.Internal, fmt.Sprintf("Ошибка подтверждения транзакции: %s", err))
 	}
@@ -170,15 +254,47 @@ func (s *ChatServiceServer) SaveMessage(ctx context.Context, req *dbchat.SaveMes
 		return nil, status.Errorf(codes.Internal, "Не удалось получить метаданные из контекста")
 	}
 
+	token, err := utils.ExtractTokenFromContext(ctx)
+	if err != nil {
+		log.Printf("Не удалось извлечь токен для логирования: %v", err)
+		return nil, status.Errorf(codes.Unauthenticated, "Не удалось извлечь токен для логирования")
+	}
+
+	// Устанавливаем соединение с gRPC сервером Logs
+	clientLogs, err, conn := utils.GRPCServiceConnector(token, logs.NewLogsServiceClient)
+	if err != nil {
+		log.Printf("Не удалось подключиться к серверу: %v", err)
+		return nil, status.Errorf(codes.Unauthenticated, "Не удалось создать соединение с сервером Logs")
+	} else {
+		defer func(conn *grpc.ClientConn) {
+			err := conn.Close()
+			if err != nil {
+				log.Printf("Ошибка закрытия соединения: %v", err)
+				errLogs := utils.SaveLogsError(ctx, clientLogs, "", "", err.Error())
+				if errLogs != nil {
+					log.Printf("Ошибка закрытия соединения: %v", err)
+				}
+			}
+		}(conn)
+	}
+
 	// Извлекаем DatabaseName из метаданных
 	database := md["database"][0] // токен передается как "auth-token"
 	if len(database) == 0 {
+		errLogs := utils.SaveLogsError(ctx, clientLogs, "", "", "database не найдена в метаданных")
+		if errLogs != nil {
+			log.Printf("database не найдена в метаданных: %v", err)
+		}
 		return nil, status.Errorf(codes.Unauthenticated, "database не найдена в метаданных")
 	}
 
 	// Извлекаем UserId из метаданных
 	userId := md["user-id"][0] // токен передается как "auth-token"
 	if len(userId) == 0 {
+		errLogs := utils.SaveLogsError(ctx, clientLogs, "", "", "userId не найдена в метаданных")
+		if errLogs != nil {
+			log.Printf("userId не найдена в метаданных: %v", err)
+		}
 		return nil, status.Errorf(codes.Unauthenticated, "userId не найдена в метаданных")
 	}
 
@@ -186,6 +302,10 @@ func (s *ChatServiceServer) SaveMessage(ctx context.Context, req *dbchat.SaveMes
 	dsn := utils.DsnString(database)
 	dbConnCompany, err := s.connectionsMap.GetDb(dsn)
 	if err != nil || dbConnCompany == nil {
+		errLogs := utils.SaveLogsError(ctx, clientLogs, database, userId, "Ошибка подключения к базе данных")
+		if errLogs != nil {
+			log.Printf("Ошибка подключения к базе данных: %v", err)
+		}
 		log.Printf("Ошибка подключения к базе данных: %s", err)
 		return nil, status.Errorf(codes.Internal, fmt.Sprintf("Ошибка подключения к базе данных: %s", err))
 	}
@@ -206,6 +326,10 @@ func (s *ChatServiceServer) SaveMessage(ctx context.Context, req *dbchat.SaveMes
 		Scan(&messageID, &createdAt)
 	if err != nil {
 		log.Printf("Ошибка при сохранении сообщения: %s", err)
+		errLogs := utils.SaveLogsError(ctx, clientLogs, database, userId, err.Error())
+		if errLogs != nil {
+			log.Printf("Ошибка при сохранении сообщения: %v", err)
+		}
 		return nil, status.Errorf(codes.Internal, fmt.Sprintf("Ошибка при сохранении сообщения: %s", err))
 	}
 

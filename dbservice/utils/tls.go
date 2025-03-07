@@ -9,14 +9,14 @@ import (
 )
 
 const (
-	serverCertFile   = "sslkeys/server.pem"
-	serverKeyFile    = "sslkeys/server.key"
-	clientCACertFile = "sslkeys/ca.crt"
+	ServerCertFile   = "sslkeys/server.pem"
+	ServerKeyFile    = "sslkeys/server.key"
+	ClientCACertFile = "sslkeys/ca.crt"
 )
 
 func LoadTLSCredentials() (credentials.TransportCredentials, error) {
 	// Load certificate of the CA who signed client's certificate
-	pemClientCA, err := ioutil.ReadFile(clientCACertFile)
+	pemClientCA, err := ioutil.ReadFile(ClientCACertFile)
 	if err != nil {
 		return nil, err
 	}
@@ -27,7 +27,7 @@ func LoadTLSCredentials() (credentials.TransportCredentials, error) {
 	}
 
 	// Load server's certificate and private key
-	serverCert, err := tls.LoadX509KeyPair(serverCertFile, serverKeyFile)
+	serverCert, err := tls.LoadX509KeyPair(ServerCertFile, ServerKeyFile)
 	if err != nil {
 		return nil, err
 	}

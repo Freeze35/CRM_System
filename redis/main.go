@@ -34,6 +34,7 @@ func (s *server) Save(ctx context.Context, req *pb.SaveRedisRequest) (*pb.SaveRe
 	//С помощью клиента для редис кэша сохраняем данные
 	success, err := s.RedisClient.SetNX(ctx, req.Key, req.Value, expiration).Result()
 	if err != nil {
+
 		return &pb.SaveRedisResponse{
 			Message: "Ошибка при сохранении: " + err.Error(),
 			Status:  http.StatusInternalServerError,
@@ -86,7 +87,12 @@ func main() {
 
 	//Создаём соединение с редис кэшем
 	redisClient := NewRedisClient()
-	defer redisClient.Close()
+	defer func(redisClient *redis.Client) {
+		err := redisClient.Close()
+		if err != nil {
+			log.Fatalf("Некорректное подключение к redis")
+		}
+	}(redisClient)
 
 	//Создаём соединение tcp для прослушивания входящих Grpc запросов
 	listener, err := net.Listen("tcp", ":"+os.Getenv("GRPC_PORT"))

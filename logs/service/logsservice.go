@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
+	"io"
+	"log"
 	"net/http"
 	"time"
 )
@@ -38,14 +40,16 @@ func NewGRPCDBLogsService(lokiURL string) *LogsServer {
 }
 
 // SaveLogs обрабатывает запросы на сохранение логов
-func (s *LogsServer) SaveLogs(ctx context.Context, req *pb.LogRequest) (*pb.LogResponse, error) {
+func (s *LogsServer) SaveLogs(_ context.Context, req *pb.LogRequest) (*pb.LogResponse, error) {
 	// Создание payload для Loki
 	payload := lokiPayload{
 		Streams: []lokiStream{
 			{
 				Stream: map[string]string{
-					"job":   req.Name,
-					"level": req.Level,
+					"job":      req.Name,
+					"level":    req.Level,
+					"database": req.Database,
+					"userId":   req.UserID,
 				},
 				Values: [][2]string{
 					{fmt.Sprintf("%d", time.Now().UnixNano()), req.Message},
@@ -72,7 +76,12 @@ func (s *LogsServer) SaveLogs(ctx context.Context, req *pb.LogRequest) (*pb.LogR
 	if err != nil {
 		return nil, status.Errorf(codes.Internal, "Ошибка отправки запроса: %v", err)
 	}
-	defer resp.Body.Close()
+	defer func(Body io.ReadCloser) {
+		err := Body.Close()
+		if err != nil {
+			log.Printf("Ошибка закрытия соединения")
+		}
+	}(resp.Body)
 
 	// Проверка статуса ответа
 	if resp.StatusCode != http.StatusNoContent {

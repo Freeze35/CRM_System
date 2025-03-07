@@ -3,10 +3,12 @@ package transport_rest
 import (
 	"context"
 	"crmSystem/proto/dbtimer"
+	"crmSystem/proto/logs"
 	"crmSystem/transport_rest/types"
 	"crmSystem/utils"
 	"encoding/json"
 	"github.com/gorilla/mux"
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
 	"log"
 	"net/http"
@@ -62,6 +64,30 @@ func (h *Handler) StartTimer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	md := metadata.Pairs(
+		"user-id", userId,
+		"database", database,
+	)
+
+	ctxWithMetadata := metadata.NewOutgoingContext(context.Background(), md)
+
+	// Устанавливаем соединение с gRPC сервером Logs
+	clientLogs, err, conn := utils.GRPCServiceConnector(token, logs.NewLogsServiceClient)
+	if err != nil {
+		log.Printf("Не удалось подключиться к серверу: %v", err)
+	} else {
+		defer func(conn *grpc.ClientConn) {
+			err := conn.Close()
+			if err != nil {
+				log.Printf("Ошибка закрытия соединения: %v", err)
+				errLogs := utils.SaveLogsError(ctxWithMetadata, clientLogs, "", "", err.Error())
+				if errLogs != nil {
+					log.Printf("Ошибка закрытия соединения: %v", err)
+				}
+			}
+		}(conn)
+	}
+
 	// Устанавливаем соединение с gRPC сервером Nginx
 	client, err, conn := utils.GRPCServiceConnector(token, dbtimer.NewDbTimerServiceClient)
 	if err != nil {
@@ -69,15 +95,16 @@ func (h *Handler) StartTimer(w http.ResponseWriter, r *http.Request) {
 		utils.CreateError(w, http.StatusInternalServerError, "Не удалось подключиться к серверу", err)
 		return
 	} else {
-		defer conn.Close()
+		defer func(conn *grpc.ClientConn) {
+			err := conn.Close()
+			if err != nil {
+				errLogs := utils.SaveLogsError(ctxWithMetadata, clientLogs, database, userId, err.Error())
+				if errLogs != nil {
+					log.Printf("Ошибка закрытия соединения: %v", err)
+				}
+			}
+		}(conn)
 	}
-
-	md := metadata.Pairs(
-		"user-id", userId,
-		"database", database,
-	)
-
-	ctxWithMetadata := metadata.NewOutgoingContext(context.Background(), md)
 
 	dbReq := &dbtimer.StartEndTimerRequestDB{
 		Description: req.Description,
@@ -86,6 +113,10 @@ func (h *Handler) StartTimer(w http.ResponseWriter, r *http.Request) {
 	res, err := client.StartTimerDB(ctxWithMetadata, dbReq)
 	if err != nil {
 		utils.CreateError(w, http.StatusInternalServerError, "Не удалось подключиться к серверу", err)
+		errLogs := utils.SaveLogsError(ctxWithMetadata, clientLogs, database, userId, err.Error())
+		if errLogs != nil {
+			log.Printf("Ошибка сохранения логов: %v", err)
+		}
 		return
 	}
 
@@ -97,6 +128,10 @@ func (h *Handler) StartTimer(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := utils.WriteJSON(w, http.StatusOK, response); err != nil {
+		errLogs := utils.SaveLogsError(ctxWithMetadata, clientLogs, database, userId, err.Error())
+		if errLogs != nil {
+			log.Printf("Ошибка сохранения логов: %v", err)
+		}
 		utils.CreateError(w, http.StatusInternalServerError, "Не корректная ошибка на сервере", err)
 	}
 }
@@ -127,22 +162,48 @@ func (h *Handler) EndTimer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Устанавливаем соединение с gRPC сервером Nginx
-	client, err, conn := utils.GRPCServiceConnector(token, dbtimer.NewDbTimerServiceClient)
-	if err != nil {
-		log.Printf("Не удалось подключиться к серверу: %v", err)
-		utils.CreateError(w, http.StatusInternalServerError, "Не удалось подключиться к серверу", err)
-		return
-	} else {
-		defer conn.Close()
-	}
-
 	md := metadata.Pairs(
 		"user-id", userId,
 		"database", database,
 	)
 
 	ctxWithMetadata := metadata.NewOutgoingContext(context.Background(), md)
+
+	// Устанавливаем соединение с gRPC сервером Logs
+	clientLogs, err, conn := utils.GRPCServiceConnector(token, logs.NewLogsServiceClient)
+	if err != nil {
+		log.Printf("Не удалось подключиться к серверу: %v", err)
+	} else {
+		defer func(conn *grpc.ClientConn) {
+			err := conn.Close()
+			if err != nil {
+				log.Printf("Ошибка закрытия соединения: %v", err)
+				errLogs := utils.SaveLogsError(ctxWithMetadata, clientLogs, "", "", err.Error())
+				if errLogs != nil {
+					log.Printf("Ошибка закрытия соединения: %v", err)
+				}
+			}
+		}(conn)
+	}
+
+	// Устанавливаем соединение с gRPC сервером Nginx
+	client, err, conn := utils.GRPCServiceConnector(token, dbtimer.NewDbTimerServiceClient)
+	if err != nil {
+		log.Printf("Не удалось подключиться к серверу: %v", err)
+		errLogs := utils.SaveLogsError(ctxWithMetadata, clientLogs, database, userId, err.Error())
+		if errLogs != nil {
+			log.Printf("Ошибка сохранения логов: %v", err)
+		}
+		utils.CreateError(w, http.StatusInternalServerError, "Не удалось подключиться к серверу", err)
+		return
+	} else {
+		defer func(conn *grpc.ClientConn) {
+			err := conn.Close()
+			if err != nil {
+				log.Printf("Не удалось сохранить логи")
+			}
+		}(conn)
+	}
 
 	dbReq := &dbtimer.StartEndTimerRequestDB{
 		Description: req.Description,
@@ -163,6 +224,10 @@ func (h *Handler) EndTimer(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := utils.WriteJSON(w, http.StatusOK, response); err != nil {
+		errLogs := utils.SaveLogsError(ctxWithMetadata, clientLogs, database, userId, err.Error())
+		if errLogs != nil {
+			log.Printf("Ошибка сохранения логов: %v", err)
+		}
 		utils.CreateError(w, http.StatusInternalServerError, "Не корректная ошибка на сервере", err)
 	}
 }
@@ -185,17 +250,6 @@ func (h *Handler) GetWorkingTimer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Устанавливаем соединение с gRPC сервером Nginx
-	client, err, conn := utils.GRPCServiceConnector(token, dbtimer.NewDbTimerServiceClient)
-	if err != nil {
-		utils.CreateError(w, http.StatusInternalServerError, "Не удалось подключиться к серверу", err)
-		return
-	} else {
-		defer conn.Close()
-	}
-
-	dbReq := &dbtimer.WorkingTimerRequestDB{}
-
 	md := metadata.Pairs(
 		"user-id", userId,
 		"database", database,
@@ -203,9 +257,48 @@ func (h *Handler) GetWorkingTimer(w http.ResponseWriter, r *http.Request) {
 
 	ctxWithMetadata := metadata.NewOutgoingContext(context.Background(), md)
 
+	// Устанавливаем соединение с gRPC сервером Logs
+	clientLogs, err, conn := utils.GRPCServiceConnector(token, logs.NewLogsServiceClient)
+	if err != nil {
+		log.Printf("Не удалось подключиться к серверу: %v", err)
+	} else {
+		defer func(conn *grpc.ClientConn) {
+			err := conn.Close()
+			if err != nil {
+				log.Printf("Ошибка закрытия соединения: %v", err)
+				errLogs := utils.SaveLogsError(ctxWithMetadata, clientLogs, "", "", err.Error())
+				if errLogs != nil {
+					log.Printf("Ошибка сохранения логов: %v", err)
+				}
+			}
+		}(conn)
+	}
+
+	// Устанавливаем соединение с gRPC сервером Nginx
+	client, err, conn := utils.GRPCServiceConnector(token, dbtimer.NewDbTimerServiceClient)
+	if err != nil {
+		utils.CreateError(w, http.StatusInternalServerError, "Не удалось подключиться к серверу", err)
+		return
+	} else {
+
+		defer func(conn *grpc.ClientConn) {
+			err := conn.Close()
+			if err != nil {
+				utils.CreateError(w, http.StatusInternalServerError, "Не удалось подключиться к серверу NewDbTimerServiceClient", err)
+				return
+			}
+		}(conn)
+	}
+
+	dbReq := &dbtimer.WorkingTimerRequestDB{}
+
 	res, err := client.GetWorkingTimerDB(ctxWithMetadata, dbReq)
 
 	if err != nil {
+		errLogs := utils.SaveLogsError(ctxWithMetadata, clientLogs, "", "", err.Error())
+		if errLogs != nil {
+			log.Printf("Ошибка сохранения логов: %v", err)
+		}
 		utils.CreateError(w, http.StatusInternalServerError, "Не удалось подключиться к серверу", err)
 	}
 
@@ -217,6 +310,10 @@ func (h *Handler) GetWorkingTimer(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := utils.WriteJSON(w, http.StatusOK, response); err != nil {
+		errLogs := utils.SaveLogsError(ctxWithMetadata, clientLogs, "", "", err.Error())
+		if errLogs != nil {
+			log.Printf("Ошибка сохранения логов: %v", err)
+		}
 		utils.CreateError(w, http.StatusInternalServerError, "Не корректная ошибка на сервере", err)
 	}
 }
@@ -247,20 +344,6 @@ func (h *Handler) ChangeTimer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Устанавливаем соединение с gRPC сервером Nginx
-	client, err, conn := utils.GRPCServiceConnector(token, dbtimer.NewDbTimerServiceClient)
-	if err != nil {
-		log.Printf("Не удалось подключиться к серверу: %v", err)
-		utils.CreateError(w, http.StatusInternalServerError, "Не корректная ошибка на сервере", err)
-		return
-	} else {
-		defer conn.Close()
-	}
-
-	dbReq := &dbtimer.ChangeTimerRequestDB{
-		TimerId: req.TimerId,
-	}
-
 	md := metadata.Pairs(
 		"user-id", userId,
 		"database", database,
@@ -268,9 +351,54 @@ func (h *Handler) ChangeTimer(w http.ResponseWriter, r *http.Request) {
 
 	ctxWithMetadata := metadata.NewOutgoingContext(context.Background(), md)
 
+	// Устанавливаем соединение с gRPC сервером Logs
+	clientLogs, err, conn := utils.GRPCServiceConnector(token, logs.NewLogsServiceClient)
+	if err != nil {
+		log.Printf("Не удалось подключиться к серверу: %v", err)
+	} else {
+		defer func(conn *grpc.ClientConn) {
+			err := conn.Close()
+			if err != nil {
+				log.Printf("Ошибка закрытия соединения: %v", err)
+				errLogs := utils.SaveLogsError(ctxWithMetadata, clientLogs, "", "", err.Error())
+				if errLogs != nil {
+					log.Printf("Ошибка сохранения логов: %v", err)
+				}
+			}
+		}(conn)
+	}
+
+	// Устанавливаем соединение с gRPC сервером Nginx
+	client, err, conn := utils.GRPCServiceConnector(token, dbtimer.NewDbTimerServiceClient)
+	if err != nil {
+		log.Printf("Не удалось подключиться к серверу: %v", err)
+		errLogs := utils.SaveLogsError(ctxWithMetadata, clientLogs, "", "", err.Error())
+		if errLogs != nil {
+			log.Printf("Ошибка сохранения логов: %v", err)
+		}
+		utils.CreateError(w, http.StatusInternalServerError, "Не корректная ошибка на сервере", err)
+		return
+	} else {
+		defer func(conn *grpc.ClientConn) {
+			err := conn.Close()
+			if err != nil {
+				utils.CreateError(w, http.StatusInternalServerError, "Не корректная ошибка на сервере", err)
+				return
+			}
+		}(conn)
+	}
+
+	dbReq := &dbtimer.ChangeTimerRequestDB{
+		TimerId: req.TimerId,
+	}
+
 	res, err := client.ChangeTimerDB(ctxWithMetadata, dbReq)
 
 	if err != nil {
+		errLogs := utils.SaveLogsError(ctxWithMetadata, clientLogs, "", "", err.Error())
+		if errLogs != nil {
+			log.Printf("Ошибка сохранения логов: %v", err)
+		}
 		utils.CreateError(w, http.StatusInternalServerError, "Не корректная ошибка на сервере", err)
 		return
 	}
@@ -286,6 +414,10 @@ func (h *Handler) ChangeTimer(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := utils.WriteJSON(w, http.StatusOK, response); err != nil {
+		errLogs := utils.SaveLogsError(ctxWithMetadata, clientLogs, "", "", err.Error())
+		if errLogs != nil {
+			log.Printf("Ошибка сохранения логов: %v", err)
+		}
 		utils.CreateError(w, http.StatusInternalServerError, "Не корректная ошибка на сервере", err)
 	}
 
@@ -317,14 +449,48 @@ func (h *Handler) AddTimer(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	md := metadata.Pairs(
+		"user-id", userId,
+		"database", database,
+	)
+
+	ctxWithMetadata := metadata.NewOutgoingContext(context.Background(), md)
+
+	// Устанавливаем соединение с gRPC сервером Logs
+	clientLogs, err, conn := utils.GRPCServiceConnector(token, logs.NewLogsServiceClient)
+	if err != nil {
+		log.Printf("Не удалось подключиться к серверу: %v", err)
+	} else {
+		defer func(conn *grpc.ClientConn) {
+			err := conn.Close()
+			if err != nil {
+				log.Printf("Ошибка закрытия соединения: %v", err)
+				errLogs := utils.SaveLogsError(ctxWithMetadata, clientLogs, "", "", err.Error())
+				if errLogs != nil {
+					log.Printf("Ошибка сохранения логов: %v", err)
+				}
+			}
+		}(conn)
+	}
+
 	// Устанавливаем соединение с gRPC сервером Nginx
 	client, err, conn := utils.GRPCServiceConnector(token, dbtimer.NewDbTimerServiceClient)
 	if err != nil {
 		log.Printf("Не удалось подключиться к серверу: %v", err)
+		errLogs := utils.SaveLogsError(ctxWithMetadata, clientLogs, "", "", err.Error())
+		if errLogs != nil {
+			log.Printf("Ошибка сохранения логов: %v", err)
+		}
 		utils.CreateError(w, http.StatusInternalServerError, "Не корректная ошибка на сервере", err)
 		return
 	} else {
-		defer conn.Close()
+		defer func(conn *grpc.ClientConn) {
+			err := conn.Close()
+			if err != nil {
+				utils.CreateError(w, http.StatusInternalServerError, "Не корректная ошибка на сервере", err)
+				return
+			}
+		}(conn)
 	}
 
 	dbReq := &dbtimer.AddTimerRequestDB{
@@ -334,17 +500,15 @@ func (h *Handler) AddTimer(w http.ResponseWriter, r *http.Request) {
 		Description: req.Description,
 	}
 
-	md := metadata.Pairs(
-		"user-id", userId,
-		"database", database,
-	)
-
-	ctxWithMetadata := metadata.NewOutgoingContext(context.Background(), md)
-
 	res, err := client.AddTimerDB(ctxWithMetadata, dbReq)
 
 	if err != nil {
+
 		utils.CreateError(w, http.StatusInternalServerError, "Не удалось подключиться к серверу", err)
+		errLogs := utils.SaveLogsError(ctxWithMetadata, clientLogs, "", "", err.Error())
+		if errLogs != nil {
+			log.Printf("Ошибка сохранения логов: %v", err)
+		}
 		return
 	}
 
@@ -358,6 +522,10 @@ func (h *Handler) AddTimer(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := utils.WriteJSON(w, http.StatusOK, response); err != nil {
+		errLogs := utils.SaveLogsError(ctxWithMetadata, clientLogs, "", "", err.Error())
+		if errLogs != nil {
+			log.Printf("Ошибка сохранения логов: %v", err)
+		}
 		utils.CreateError(w, http.StatusInternalServerError, "Не корректная ошибка на сервере", err)
 	}
 }

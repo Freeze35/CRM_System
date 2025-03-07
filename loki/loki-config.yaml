@@ -2,6 +2,7 @@ auth_enabled: false
 
 server:
   http_listen_port: 3100
+  grpc_listen_port: 9095  # Порт для gRPC
   http_tls_config:
     client_auth_type: NoClientCert  # Отключение требования клиентских сертификатов
 

@@ -3,6 +3,7 @@ package transport_rest
 import (
 	"context"
 	"crmSystem/proto/dbauth"
+	"crmSystem/proto/logs"
 	"crmSystem/transport_rest/types"
 	"crmSystem/utils"
 	"encoding/json"
@@ -42,21 +43,58 @@ func (h *Handler) InitRouter() *mux.Router {
 
 func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 
-	//Декодирум поступающий от клиента json
+	//Генерация JWT токена
+	token, err := utils.JwtGenerate()
+	if err != nil {
+		utils.CreateError(w, http.StatusInternalServerError, "Не удалось создать токен ", err)
+	}
+
+	ctx := context.Background()
+
+	// Устанавливаем соединение с gRPC сервером Logs
+	clientLogs, err, conn := utils.GRPCServiceConnector(token, logs.NewLogsServiceClient)
+	if err != nil {
+		log.Printf("Не удалось подключиться к серверу: %v", err)
+		utils.CreateError(w, http.StatusBadRequest, "Ошибка подключения", err)
+		return
+	} else {
+		defer func(conn *grpc.ClientConn) {
+			err := conn.Close()
+			if err != nil {
+				log.Printf("Ошибка закрытия соединения: %v", err)
+				errLogs := utils.SaveLogsError(ctx, clientLogs, "", "", err.Error())
+				if errLogs != nil {
+					log.Printf("Ошибка закрытия соединения: %v", err)
+					return
+				}
+			}
+		}(conn)
+	}
+
+	//Декодируем поступающий от клиента json
 	var req types.LoginAuthRequest
 	decoder := json.NewDecoder(r.Body)
 	if err := decoder.Decode(&req); err != nil {
 		http.Error(w, "Ошибка при декодировании данных", http.StatusBadRequest)
-		return
+		errLogs := utils.SaveLogsError(ctx, clientLogs, "", "", err.Error())
+		if errLogs != nil {
+			log.Printf("Ошибка закрытия соединения: %v", err)
+			return
+		}
 	}
 
 	// Создаем валидатор
 	validate := validator.New()
 
 	// Регистрируем кастомные валидаторы
-	err := validate.RegisterValidation("phone", validatePhone)
+	err = validate.RegisterValidation("phone", validatePhone)
 	if err != nil {
 		utils.CreateError(w, http.StatusBadRequest, "Ошибка проверки номера телефона", err)
+		errLogs := utils.SaveLogsError(ctx, clientLogs, "", "", err.Error())
+		if errLogs != nil {
+			log.Printf("Ошибка проверки номера телефона: %v", err)
+			return
+		}
 		return
 	}
 
@@ -64,6 +102,11 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	err = validate.RegisterValidation("password", validatePassword)
 	if err != nil {
 		utils.CreateError(w, http.StatusBadRequest, "Ошибка при проверке пароля", err)
+		errLogs := utils.SaveLogsError(ctx, clientLogs, "", "", err.Error())
+		if errLogs != nil {
+			log.Printf("Ошибка при проверке пароля: %v", err)
+			return
+		}
 		return
 	}
 
@@ -80,32 +123,49 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	//Генерация JWT токена
-	token, err := utils.JwtGenerate()
-	if err != nil {
-		utils.CreateError(w, http.StatusInternalServerError, "Не удалось создать токен ", err)
-	}
-
 	// Устанавливаем соединение с gRPC сервером dbService
 	client, err, conn := utils.GRPCServiceConnector(token, dbauth.NewDbAuthServiceClient)
 	if err != nil {
 		log.Printf("Не удалось подключиться к серверу: %v", err)
 		utils.CreateError(w, http.StatusBadRequest, "Ошибка подключения", err)
+		errLogs := utils.SaveLogsError(ctx, clientLogs, "", "", err.Error())
+		if errLogs != nil {
+			log.Printf("Ошибка подключения: %v", err)
+			return
+		}
 		return
 	} else {
-		defer conn.Close()
+		defer func(conn *grpc.ClientConn) {
+			err := conn.Close()
+			if err != nil {
+				errLogs := utils.SaveLogsError(ctx, clientLogs, "", "", err.Error())
+				if errLogs != nil {
+					log.Printf("Ошибка закрытия соединени: %v", err)
+					return
+				}
+				log.Printf("Ошибка закрытия соединени")
+			}
+		}(conn)
 	}
 
 	// Проводим авторизацию пользователя с запросом к dbservice
 	response, responseStatus, err := loginUser(w, client, &req, token)
 	if err != nil {
 		utils.CreateError(w, responseStatus, "Не корректная ошибка на сервере", err)
-		return
+		errLogs := utils.SaveLogsError(ctx, clientLogs, "", "", err.Error())
+		if errLogs != nil {
+			log.Printf("Не корректная ошибка на сервере: %v", err)
+			return
+		}
 	}
 
 	// Если авторизация прошла успешно, выводим данные
 	if err := utils.WriteJSON(w, http.StatusOK, response); err != nil {
 		utils.CreateError(w, http.StatusInternalServerError, "Не корректная ошибка на сервере", err)
+		errLogs := utils.SaveLogsError(ctx, clientLogs, "", "", err.Error())
+		if errLogs != nil {
+			log.Printf("Не корректная ошибка на сервере: %v", err)
+		}
 	}
 }
 
@@ -131,6 +191,26 @@ func loginUser(w http.ResponseWriter, client dbauth.DbAuthServiceClient, req *ty
 	// Заголовки из ответа
 	header := metadata.MD{}
 
+	// Устанавливаем соединение с gRPC сервером Logs
+	clientLogs, err, conn := utils.GRPCServiceConnector(token, logs.NewLogsServiceClient)
+	if err != nil {
+		log.Printf("Не удалось подключиться к серверу: %v", err)
+		utils.CreateError(w, http.StatusBadRequest, "Ошибка подключения", err)
+		return
+	} else {
+		defer func(conn *grpc.ClientConn) {
+			err := conn.Close()
+			if err != nil {
+				log.Printf("Ошибка закрытия соединения: %v", err)
+				errLogs := utils.SaveLogsError(ctxWithMetadata, clientLogs, "", "", err.Error())
+				if errLogs != nil {
+					log.Printf("Ошибка закрытия соединения: %v", err)
+					return
+				}
+			}
+		}(conn)
+	}
+
 	// Выполняем gRPC вызов LoginDB, передавая указатель для получения заголовков
 	resDB, err := client.LoginDB(ctxWithMetadata, reqLogin, grpc.Header(&header))
 	if err != nil {
@@ -143,8 +223,17 @@ func loginUser(w http.ResponseWriter, client dbauth.DbAuthServiceClient, req *ty
 		// Логика в зависимости от кода ошибки
 		switch code {
 		case codes.Unauthenticated:
+			errLogs := utils.SaveLogsError(ctxWithMetadata, clientLogs, "", "", err.Error())
+			if errLogs != nil {
+				log.Printf("Ошибка подключения: %v", err)
+			}
 			return nil, http.StatusUnauthorized, fmt.Errorf("неавторизированный запрос : %s", errorMessage)
+
 		default:
+			errLogs := utils.SaveLogsError(ctxWithMetadata, clientLogs, "", "", err.Error())
+			if errLogs != nil {
+				log.Printf("Ошибка подключения: %v", err)
+			}
 			return nil, http.StatusInternalServerError, fmt.Errorf("неизвестная ошибка : %s", errorMessage)
 		}
 	}
@@ -155,6 +244,10 @@ func loginUser(w http.ResponseWriter, client dbauth.DbAuthServiceClient, req *ty
 	companyID := header.Get("company-id")
 
 	if len(database) == 0 || len(userID) == 0 || len(companyID) == 0 {
+		errLogs := utils.SaveLogsError(ctxWithMetadata, clientLogs, "", "", "отсутствуют необходимые метаданные")
+		if errLogs != nil {
+			log.Printf("отсутствуют необходимые метаданные: %v", err)
+		}
 		return nil, http.StatusInternalServerError, fmt.Errorf("отсутствуют необходимые метаданные")
 	}
 
@@ -175,10 +268,39 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
 	defer cancel()
 
+	token, err := utils.JwtGenerate()
+	if err != nil {
+		utils.CreateError(w, http.StatusInternalServerError, "Не удалось создать токен ", err)
+	}
+
+	// Устанавливаем соединение с gRPC сервером Logs
+	clientLogs, err, conn := utils.GRPCServiceConnector(token, logs.NewLogsServiceClient)
+	if err != nil {
+		log.Printf("Не удалось подключиться к серверу: %v", err)
+		utils.CreateError(w, http.StatusBadRequest, "Ошибка подключения", err)
+		return
+	} else {
+		defer func(conn *grpc.ClientConn) {
+			err := conn.Close()
+			if err != nil {
+				log.Printf("Ошибка закрытия соединения: %v", err)
+				errLogs := utils.SaveLogsError(ctx, clientLogs, "", "", err.Error())
+				if errLogs != nil {
+					log.Printf("Ошибка закрытия соединения: %v", err)
+					return
+				}
+			}
+		}(conn)
+	}
+
 	var req types.RegisterAuthRequest
 	decoder := json.NewDecoder(r.Body)
 	if err := decoder.Decode(&req); err != nil {
 		utils.CreateError(w, http.StatusBadRequest, "Ошибка при декодировании данных", err)
+		errLogs := utils.SaveLogsError(ctx, clientLogs, "", "", err.Error())
+		if errLogs != nil {
+			log.Printf("Ошибка при декодировании данных: %v", err)
+		}
 		return
 	}
 
@@ -186,15 +308,23 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 	validate := validator.New()
 
 	// Регистрируем кастомный валидатор для пароля
-	err := validate.RegisterValidation("password", validatePassword)
+	err = validate.RegisterValidation("password", validatePassword)
 	if err != nil {
 		utils.CreateError(w, http.StatusBadRequest, "Ошибка при проверке пароля", err)
+		errLogs := utils.SaveLogsError(ctx, clientLogs, "", "", err.Error())
+		if errLogs != nil {
+			log.Printf("Ошибка при проверке пароля: %v", err)
+		}
 		return
 	}
 
 	err = validate.RegisterValidation("phone", validatePhone)
 	if err != nil {
 		utils.CreateError(w, http.StatusInternalServerError, "Ошибка регистрации кастомного валидатора", err)
+		errLogs := utils.SaveLogsError(ctx, clientLogs, "", "", err.Error())
+		if errLogs != nil {
+			log.Printf("Ошибка регистрации кастомного валидатора: %v", err)
+		}
 		return
 	}
 
@@ -207,13 +337,12 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 			// Немедленно возвращаем ошибку для каждого поля с ошибкой валидации
 			errorMessage := fmt.Sprintf("Поле '%s' не прошло валидацию", e.Field())
 			utils.CreateError(w, http.StatusBadRequest, "Ошибка валидации", fmt.Errorf(errorMessage))
+			errLogs := utils.SaveLogsError(ctx, clientLogs, "", "", err.Error())
+			if errLogs != nil {
+				log.Printf("Ошибка валидации: %v", err)
+			}
 			return
 		}
-	}
-
-	token, err := utils.JwtGenerate()
-	if err != nil {
-		utils.CreateError(w, http.StatusInternalServerError, "Не удалось создать токен ", err)
 	}
 
 	// Устанавливаем соединение с gRPC сервером dbService
@@ -221,26 +350,46 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		log.Printf("Не удалось подключиться к серверу: %v", err)
 		utils.CreateError(w, http.StatusBadRequest, "Ошибка подключения", err)
+		errLogs := utils.SaveLogsError(ctx, clientLogs, "", "", err.Error())
+		if errLogs != nil {
+			log.Printf("Ошибка подключения: %v", err)
+		}
 		return
 	} else {
-		defer conn.Close()
+		defer func(conn *grpc.ClientConn) {
+			err := conn.Close()
+			if err != nil {
+				errLogs := utils.SaveLogsError(ctx, clientLogs, "", "", err.Error())
+				if errLogs != nil {
+					log.Printf("Ошибка закрытия подключения: %v", err)
+				}
+			}
+		}(conn)
 	}
 
 	// Вызываем метод регистрации компании через gRPC
-	response, responseStatus, err := callRegisterCompany(w, client, &req, ctx, token)
+	response, responseStatus, err := callRegisterCompany(w, client, &req, ctx, token, clientLogs)
 	if err != nil {
 		utils.CreateError(w, responseStatus, "Ошибка регистрации компании", err)
+		errLogs := utils.SaveLogsError(ctx, clientLogs, "", "", err.Error())
+		if errLogs != nil {
+			log.Printf("Ошибка регистрации компании: %v", err)
+		}
 		return
 	}
 
 	// Если запрос успешно выполнен, возвращаем JSON-ответ
 	if err := utils.WriteJSON(w, http.StatusOK, response); err != nil {
 		utils.CreateError(w, http.StatusInternalServerError, "Ошибка записи ответа", err)
+		errLogs := utils.SaveLogsError(ctx, clientLogs, "", "", err.Error())
+		if errLogs != nil {
+			log.Printf("Ошибка записи ответа: %v", err)
+		}
 	}
 }
 
 func callRegisterCompany(w http.ResponseWriter, client dbauth.DbAuthServiceClient,
-	req *types.RegisterAuthRequest, ctx context.Context, token string) (response *types.RegisterAuthResponse, responseStatus uint32, err error) {
+	req *types.RegisterAuthRequest, ctx context.Context, token string, clientLogs logs.LogsServiceClient) (response *types.RegisterAuthResponse, responseStatus uint32, err error) {
 
 	// Создаем контекст с тайм-аутом для запроса
 	// В случае превышения порога ожидания с сервера в 10 секунд будет ошибка контекста.
@@ -269,16 +418,21 @@ func callRegisterCompany(w http.ResponseWriter, client dbauth.DbAuthServiceClien
 		// Код ошибки
 		code := status.Code(err)
 
+		errLogs := utils.SaveLogsError(ctx, clientLogs, "", "", err.Error())
+		if errLogs != nil {
+			log.Printf("Ошибка авторизации: %v", err)
+		}
+
 		// Логика в зависимости от кода ошибки
 		switch code {
 		case codes.Unauthenticated:
-			return nil, http.StatusUnauthorized, fmt.Errorf("неавторизированный запрос : %s", errorMessage)
+			return nil, http.StatusUnauthorized, fmt.Errorf(errorMessage)
 		case codes.Unimplemented:
-			return nil, http.StatusNotImplemented, fmt.Errorf("неавторизированный запрос : %s", errorMessage)
+			return nil, http.StatusNotImplemented, fmt.Errorf(errorMessage)
 		case codes.AlreadyExists:
-			return nil, http.StatusConflict, fmt.Errorf("неавторизированный запрос : %s", errorMessage)
+			return nil, http.StatusConflict, fmt.Errorf(errorMessage)
 		default:
-			return nil, http.StatusInternalServerError, fmt.Errorf("внутреняя ошибка регистрации : %s", errorMessage)
+			return nil, http.StatusInternalServerError, fmt.Errorf(errorMessage)
 		}
 	}
 
@@ -293,6 +447,10 @@ func callRegisterCompany(w http.ResponseWriter, client dbauth.DbAuthServiceClien
 	companyID := header.Get("company-id")
 
 	if len(database) == 0 || len(userID) == 0 || len(companyID) == 0 {
+		errLogs := utils.SaveLogsError(ctx, clientLogs, "", "", "отсутствуют необходимые метаданные")
+		if errLogs != nil {
+			log.Printf("Отсутствуют необходимые метаданные: %v", err)
+		}
 		return nil, http.StatusInternalServerError, fmt.Errorf("отсутствуют необходимые метаданные")
 	}
 

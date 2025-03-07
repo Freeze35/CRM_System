@@ -4,12 +4,14 @@ import (
 	"context"
 	"crmSystem/internal/service"
 	pb "crmSystem/proto/email-service"
+	"crmSystem/proto/logs"
+	"crmSystem/utils"
 	amqp "github.com/rabbitmq/amqp091-go"
 	"log"
 )
 
 // StartConsumer будет слушать очередь и обрабатывать сообщения
-func StartConsumer(ch *amqp.Channel, queueName string, emailService *service.EmailService, workerID int) {
+func StartConsumer(ch *amqp.Channel, queueName string, emailService *service.EmailService, workerID int, clientLogs logs.LogsServiceClient) {
 	msgs, err := ch.Consume(
 		queueName, // Имя очереди
 		"",        // Имя потребителя
@@ -37,6 +39,10 @@ func StartConsumer(ch *amqp.Channel, queueName string, emailService *service.Ema
 		})
 
 		if err != nil {
+			errLogs := utils.SaveLogsError(ctx, clientLogs, "", "", err.Error())
+			if errLogs != nil {
+				log.Printf("Ошибка при отправке email: %v", err)
+			}
 			log.Printf("Worker %d: Ошибка при отправке email: %v", workerID, err)
 		} else {
 			log.Printf("Worker %d: Email успешно отправлен: %v", workerID, resp.Message)

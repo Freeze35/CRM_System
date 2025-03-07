@@ -4,12 +4,14 @@ import (
 	"context"
 	"crmSystem/proto/dbadmin"
 	"crmSystem/proto/email-service"
+	"crmSystem/proto/logs"
 	"crmSystem/transport_rest/types"
 	"crmSystem/utils"
 	"encoding/json"
 	"fmt"
 	"github.com/go-playground/validator/v10"
 	"github.com/gorilla/mux"
+	grpc "google.golang.org/grpc"
 	"google.golang.org/grpc/metadata"
 	"log"
 	"net/http"
@@ -41,28 +43,6 @@ func (h *Handler) InitRouter() *mux.Router {
 
 func (h *Handler) AddUsers(w http.ResponseWriter, r *http.Request) {
 
-	var reqUsers types.RegisterUsersRequest
-	decoder := json.NewDecoder(r.Body)
-	if err := decoder.Decode(&reqUsers); err != nil {
-		http.Error(w, "Ошибка при декодировании данных", http.StatusBadRequest)
-		return
-	}
-
-	// Создаем валидатор
-	validate := validator.New()
-
-	// Валидация структуры
-	err := validate.Struct(reqUsers) // Исправление: используем req, а не пустую структуру
-	if err != nil {
-		// Если есть ошибки валидации, разбираем их и сразу отправляем ошибку
-		validationErrors := err.(validator.ValidationErrors)
-		for _, e := range validationErrors {
-			// Немедленно возвращаем ошибку для каждого поля с ошибкой валидации
-			errorMessage := fmt.Sprintf("Поле '%s' не прошло валидацию", e.Field())
-			utils.CreateError(w, http.StatusBadRequest, "Ошибка валидации", fmt.Errorf(errorMessage))
-			return
-		}
-	}
 	// Получаем cookie с именами
 	token := utils.GetFromCookies(w, r, "auth-token")
 	if token == "" {
@@ -86,20 +66,96 @@ func (h *Handler) AddUsers(w http.ResponseWriter, r *http.Request) {
 
 	ctxWithMetadata := metadata.NewOutgoingContext(context.Background(), md)
 
+	// Устанавливаем соединение с gRPC сервером Logs
+	clientLogs, err, conn := utils.GRPCServiceConnector(token, logs.NewLogsServiceClient)
+	if err != nil {
+		log.Printf("Не удалось подключиться к серверу: %v", err)
+		utils.CreateError(w, http.StatusBadRequest, "Ошибка подключения", err)
+		errLogs := utils.SaveLogsError(ctxWithMetadata, clientLogs, database, userId, err.Error())
+		if errLogs != nil {
+			log.Printf("Ошибка закрытия соединения: %v", err)
+		}
+		return
+	} else {
+		defer func(conn *grpc.ClientConn) {
+			err := conn.Close()
+			if err != nil {
+				log.Printf("Ошибка закрытия соединения: %v", err)
+				errLogs := utils.SaveLogsError(ctxWithMetadata, clientLogs, database, userId, err.Error())
+				if errLogs != nil {
+					log.Printf("Ошибка закрытия соединения: %v", err)
+					return
+				}
+			}
+		}(conn)
+	}
+
+	var reqUsers types.RegisterUsersRequest
+	decoder := json.NewDecoder(r.Body)
+	if err := decoder.Decode(&reqUsers); err != nil {
+		http.Error(w, "Ошибка при декодировании данных", http.StatusBadRequest)
+
+		errLogs := utils.SaveLogsError(ctxWithMetadata, clientLogs, database, userId, err.Error())
+		if errLogs != nil {
+			log.Printf("Ошибка при декодировании данных: %v", err)
+		}
+		return
+	}
+
+	// Создаем валидатор
+	validate := validator.New()
+
+	// Валидация структуры
+	err = validate.Struct(reqUsers) // Исправление: используем req, а не пустую структуру
+	if err != nil {
+		// Если есть ошибки валидации, разбираем их и сразу отправляем ошибку
+		validationErrors := err.(validator.ValidationErrors)
+		for _, e := range validationErrors {
+			// Немедленно возвращаем ошибку для каждого поля с ошибкой валидации
+			errorMessage := fmt.Sprintf("Поле '%s' не прошло валидацию", e.Field())
+			utils.CreateError(w, http.StatusBadRequest, "Ошибка валидации", fmt.Errorf(errorMessage))
+
+			errLogs := utils.SaveLogsError(ctxWithMetadata, clientLogs, database, userId, err.Error())
+			if errLogs != nil {
+				log.Printf("Ошибка валидации: %v", err)
+			}
+			return
+		}
+
+	}
+
 	// Устанавливаем соединение с gRPC сервером dbService
 	client, err, conn := utils.GRPCServiceConnector(token, dbadmin.NewDbAdminServiceClient)
 	if err != nil {
 		log.Printf("Не удалось подключиться к серверу: %v", err)
 		utils.CreateError(w, http.StatusBadRequest, "Ошибка подключения", err)
+		errLogs := utils.SaveLogsError(ctxWithMetadata, clientLogs, database, userId, err.Error())
+		if errLogs != nil {
+			log.Printf("Не удалось передать логи ошибки: %v", err)
+		}
 		return
 	} else {
-		defer conn.Close()
+		defer func(conn *grpc.ClientConn) {
+			err := conn.Close()
+			if err != nil {
+				log.Printf("Ошибка закрытия соединения: %v", err)
+				errLogs := utils.SaveLogsError(ctxWithMetadata, clientLogs, database, userId, err.Error())
+				if errLogs != nil {
+					log.Printf("Ошибка закрытия соединения: %v", err)
+					return
+				}
+			}
+		}(conn)
 	}
 
 	//Вызываем регистрацию пользователя на dbservice
-	response, err := callAddUsers(ctxWithMetadata, client, &reqUsers)
+	response, err := callAddUsers(ctxWithMetadata, client, &reqUsers, clientLogs, database, userId)
 	if err != nil {
 		utils.CreateError(w, http.StatusInternalServerError, "Не корректная ошибка на сервере.", err)
+		errLogs := utils.SaveLogsError(ctxWithMetadata, clientLogs, database, userId, err.Error())
+		if errLogs != nil {
+			log.Printf("Не корректная ошибка на сервере: %v", err)
+		}
 		return
 	}
 
@@ -115,9 +171,25 @@ func (h *Handler) AddUsers(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		log.Printf("Не удалось подключиться к серверу: %v", err)
 		utils.CreateError(w, http.StatusBadRequest, "Ошибка подключения", err)
+
+		errLogs := utils.SaveLogsError(ctxWithMetadata, clientLogs, database, userId, err.Error())
+		if errLogs != nil {
+			log.Printf("Ошибка подключения: %v", err)
+		}
+
 		return
 	} else {
-		defer conn.Close()
+		defer func(conn *grpc.ClientConn) {
+			err := conn.Close()
+			if err != nil {
+				log.Printf("Ошибка закрытия соединения: %v", err)
+				errLogs := utils.SaveLogsError(ctxWithMetadata, clientLogs, database, userId, err.Error())
+				if errLogs != nil {
+					log.Printf("Ошибка закрытия соединения: %v", err)
+					return
+				}
+			}
+		}(conn)
 	}
 
 	// Подготовим список успешных и неуспешных отправок
@@ -150,6 +222,11 @@ func (h *Handler) AddUsers(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			failureCount++
 			failureMessages = append(failureMessages, "Failed to send email to "+user.Email+": "+err.Error())
+
+			errLogs := utils.SaveLogsError(ctxWithMetadata, clientLogs, database, userId, err.Error())
+			if errLogs != nil {
+				log.Printf("Failed to send email to %s: %v", user.Email, err.Error())
+			}
 			continue
 		}
 
@@ -178,7 +255,14 @@ func (h *Handler) AddUsers(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := utils.WriteJSON(w, http.StatusOK, sendMessageResponse); err != nil {
+
 		utils.CreateError(w, http.StatusInternalServerError, "Не корректная ошибка на сервере.", err)
+		errLogs := utils.SaveLogsError(ctxWithMetadata, clientLogs, database, userId, err.Error())
+		if errLogs != nil {
+			log.Printf("Ошибка подключения: %v", err)
+		}
+
+		return
 	}
 }
 
@@ -215,7 +299,8 @@ func transformUsersConcurrently(users []*types.User) []*dbadmin.User {
 	return transformedUsers
 }
 
-func callAddUsers(ctxWithMetadata context.Context, client dbadmin.DbAdminServiceClient, req *types.RegisterUsersRequest) (response *dbadmin.RegisterUsersResponse, err error) {
+func callAddUsers(ctxWithMetadata context.Context, client dbadmin.DbAdminServiceClient, req *types.RegisterUsersRequest,
+	clientLogs logs.LogsServiceClient, database string, userId string) (response *dbadmin.RegisterUsersResponse, err error) {
 
 	reqRegisterUsers := &dbadmin.RegisterUsersRequest{
 		CompanyId: req.CompanyId,
@@ -231,7 +316,13 @@ func callAddUsers(ctxWithMetadata context.Context, client dbadmin.DbAdminService
 
 	if err != nil {
 		log.Printf("Ошибка при добавлении пользователя: %v", err)
+		errLogs := utils.SaveLogsError(ctxWithMetadata, clientLogs, database, userId, err.Error())
+		if errLogs != nil {
+			log.Printf("Не удалось выполнить gRPC вызов: %v", err)
+		}
+
 		return nil, fmt.Errorf("Не удалось выполнить gRPC вызов: %w", err)
+
 		/*log.Printf("Ошибка при добавлении пользователя: %v", err)
 		return response, nil*/
 	}

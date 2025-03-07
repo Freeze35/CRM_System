@@ -1,16 +1,20 @@
 package main
 
 import (
+	"context"
 	"crmSystem/internal/handler"
 	"crmSystem/internal/service"
 	pb "crmSystem/proto/email-service"
+	"crmSystem/proto/logs"
 	"crmSystem/utils"
 	"errors"
 	"github.com/joho/godotenv"
 	amqp "github.com/rabbitmq/amqp091-go"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/keepalive"
+	"google.golang.org/grpc/status"
 	"log"
 	"net"
 	"os"
@@ -62,7 +66,12 @@ func main() {
 	if err != nil {
 		log.Fatalf("Ошибка подключения к RabbitMQ: %v", err)
 	} else {
-		defer conn.Close()
+		defer func(conn *amqp.Connection) {
+			err := conn.Close()
+			if err != nil {
+				log.Fatal(err)
+			}
+		}(conn)
 	}
 
 	// Открытие канала
@@ -70,7 +79,12 @@ func main() {
 	if err != nil {
 		log.Fatalf("Не удалось открыть канал: %v", err)
 	}
-	defer ch.Close()
+	defer func(ch *amqp.Channel) {
+		err := ch.Close()
+		if err != nil {
+			log.Fatal(err)
+		}
+	}(ch)
 
 	// Объявляем очередь, из которой будем получать сообщения
 	q, err := ch.QueueDeclare(
@@ -85,10 +99,37 @@ func main() {
 		log.Fatalf("Не удалось объявить очередь: %v", err)
 	}
 
+	token, err := utils.JwtGenerate()
+	if err != nil {
+		err := status.Errorf(codes.Internal, "Не удалось создать токен ", err)
+		if err != nil {
+			log.Fatal(err)
+		}
+	}
+
+	ctx := context.Background()
+
+	// Устанавливаем соединение с gRPC сервером Logs
+	clientLogs, err, connLogs := utils.GRPCServiceConnector(token, logs.NewLogsServiceClient)
+	if err != nil {
+		log.Fatalf("Не удалось подключиться к серверу: %v", err)
+	} else {
+		defer func(conn *grpc.ClientConn) {
+			err := conn.Close()
+			if err != nil {
+				log.Printf("Ошибка закрытия соединения: %v", err)
+				errLogs := utils.SaveLogsError(ctx, clientLogs, "", "", err.Error())
+				if errLogs != nil {
+					log.Printf("Ошибка закрытия соединения: %v", err)
+				}
+			}
+		}(connLogs)
+	}
+
 	// Запуск нескольких воркеров (потребителей)
 	numWorkers := 5
 	for i := 0; i < numWorkers; i++ {
-		go handler.StartConsumer(ch, q.Name, service.NewEmailService(), i)
+		go handler.StartConsumer(ch, q.Name, service.NewEmailService(), i, clientLogs)
 	}
 
 	// Настроим gRPC сервер для общения с другими микросервисами

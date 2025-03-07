@@ -3,9 +3,11 @@ package dbtimerservice
 import (
 	"context"
 	"crmSystem/proto/dbtimer"
+	"crmSystem/proto/logs"
 	"crmSystem/utils"
 	"database/sql"
 	"fmt"
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
@@ -31,15 +33,47 @@ func (s *TimerServiceServer) ChangeTimerDB(ctx context.Context, req *dbtimer.Cha
 		return nil, status.Errorf(codes.Internal, "Не удалось получить метаданные из контекста")
 	}
 
+	token, err := utils.ExtractTokenFromContext(ctx)
+	if err != nil {
+		log.Printf("Не удалось извлечь токен для логирования: %v", err)
+		return nil, status.Errorf(codes.Unauthenticated, "Не удалось извлечь токен для логирования")
+	}
+
+	// Устанавливаем соединение с gRPC сервером Logs
+	clientLogs, err, conn := utils.GRPCServiceConnector(token, logs.NewLogsServiceClient)
+	if err != nil {
+		log.Printf("Не удалось подключиться к серверу: %v", err)
+		return nil, status.Errorf(codes.Unauthenticated, "Не удалось создать соединение с сервером Logs")
+	} else {
+		defer func(conn *grpc.ClientConn) {
+			err := conn.Close()
+			if err != nil {
+				log.Printf("Ошибка закрытия соединения: %v", err)
+				errLogs := utils.SaveLogsError(ctx, clientLogs, "", "", err.Error())
+				if errLogs != nil {
+					log.Printf("Ошибка закрытия соединения: %v", err)
+				}
+			}
+		}(conn)
+	}
+
 	// Извлекаем DatabaseName из метаданных
 	database := md["database"][0] // токен передается как "auth-token"
 	if len(database) == 0 {
+		errLogs := utils.SaveLogsError(ctx, clientLogs, "", "", "database не найдена в метаданных")
+		if errLogs != nil {
+			log.Printf("Ошибка начала транзакции: %v", err)
+		}
 		return nil, status.Errorf(codes.Unauthenticated, "database не найдена в метаданных")
 	}
 
 	// Извлекаем userId из метаданных
 	userId := md["user-id"][0] // токен передается как "auth-token"
 	if len(userId) == 0 {
+		errLogs := utils.SaveLogsError(ctx, clientLogs, "", "", "userId не найден в метаданных")
+		if errLogs != nil {
+			log.Printf("Ошибка начала транзакции: %v", err)
+		}
 		return nil, status.Errorf(codes.Unauthenticated, "userId не найден в метаданных")
 	}
 
@@ -50,6 +84,10 @@ func (s *TimerServiceServer) ChangeTimerDB(ctx context.Context, req *dbtimer.Cha
 	if err != nil {
 		// Если произошла ошибка подключения, логируем её и возвращаем ответ с ошибкой.
 		log.Printf("Ошибка подключения к базе данных: %s", err)
+		errLogs := utils.SaveLogsError(ctx, clientLogs, database, userId, "database не найдена в метаданных")
+		if errLogs != nil {
+			log.Printf("Ошибка подключения к базе данных: %v", err)
+		}
 		return &dbtimer.ChangeTimerResponseDB{
 			Message: fmt.Sprintf("Ошибка подключения к базе данных: %s.", err), // Сообщение об ошибке.
 		}, err
@@ -75,6 +113,10 @@ func (s *TimerServiceServer) ChangeTimerDB(ctx context.Context, req *dbtimer.Cha
 
 	if err != nil {
 		log.Printf("Ошибка при закрытии старого таймера: %s", err)
+		errLogs := utils.SaveLogsError(ctx, clientLogs, database, userId, "database не найдена в метаданных")
+		if errLogs != nil {
+			log.Printf("Ошибка при закрытии старого таймера: %v", err)
+		}
 		return nil, status.Errorf(codes.Internal, fmt.Sprintf("Ошибка при закрытии старого таймера: %s.", err))
 	}
 
@@ -110,15 +152,47 @@ func (s *TimerServiceServer) StartTimerDB(ctx context.Context, req *dbtimer.Star
 		return nil, status.Errorf(codes.Internal, "Не удалось получить метаданные из контекста")
 	}
 
+	token, err := utils.ExtractTokenFromContext(ctx)
+	if err != nil {
+		log.Printf("Не удалось извлечь токен для логирования: %v", err)
+		return nil, status.Errorf(codes.Unauthenticated, "Не удалось извлечь токен для логирования")
+	}
+
+	// Устанавливаем соединение с gRPC сервером Logs
+	clientLogs, err, conn := utils.GRPCServiceConnector(token, logs.NewLogsServiceClient)
+	if err != nil {
+		log.Printf("Не удалось подключиться к серверу: %v", err)
+		return nil, status.Errorf(codes.Unauthenticated, "Не удалось создать соединение с сервером Logs")
+	} else {
+		defer func(conn *grpc.ClientConn) {
+			err := conn.Close()
+			if err != nil {
+				log.Printf("Ошибка закрытия соединения: %v", err)
+				errLogs := utils.SaveLogsError(ctx, clientLogs, "", "", err.Error())
+				if errLogs != nil {
+					log.Printf("Ошибка закрытия соединения: %v", err)
+				}
+			}
+		}(conn)
+	}
+
 	// Извлекаем DatabaseName из метаданных
 	database := md["database"][0] // токен передается как "auth-token"
 	if len(database) == 0 {
+		errLogs := utils.SaveLogsError(ctx, clientLogs, "", "", err.Error())
+		if errLogs != nil {
+			log.Printf("database не найдена в метаданных: %v", err)
+		}
 		return nil, status.Errorf(codes.Unauthenticated, "database не найдена в метаданных")
 	}
 
 	// Извлекаем userId из метаданных
 	userId := md["user-id"][0] // токен передается как "auth-token"
 	if len(userId) == 0 {
+		errLogs := utils.SaveLogsError(ctx, clientLogs, "", "", err.Error())
+		if errLogs != nil {
+			log.Printf("userId не найден в метаданных: %v", err)
+		}
 		return nil, status.Errorf(codes.Unauthenticated, "userId не найден в метаданных")
 	}
 
@@ -129,6 +203,10 @@ func (s *TimerServiceServer) StartTimerDB(ctx context.Context, req *dbtimer.Star
 	if err != nil {
 		// Если произошла ошибка подключения, логируем её и возвращаем ответ с ошибкой.
 		log.Printf("Ошибка подключения к базе данных: %s", err)
+		errLogs := utils.SaveLogsError(ctx, clientLogs, database, userId, err.Error())
+		if errLogs != nil {
+			log.Printf("Ошибка подключения к базе данных: %v", err)
+		}
 		return nil, status.Errorf(codes.Internal, fmt.Sprintf("Ошибка подключения к базе данных: %s.", err))
 	}
 
@@ -150,6 +228,10 @@ func (s *TimerServiceServer) StartTimerDB(ctx context.Context, req *dbtimer.Star
 	if err != nil {
 		// Если произошла ошибка подключения, логируем её и возвращаем ответ с ошибкой.
 		log.Printf("Ошибка запроса к базе данных: %s", err)
+		errLogs := utils.SaveLogsError(ctx, clientLogs, database, userId, err.Error())
+		if errLogs != nil {
+			log.Printf("Ошибка запроса к базе данных: %v", err)
+		}
 		return nil, status.Errorf(codes.Internal, fmt.Sprintf("Ошибка запроса к базе данных: %s.", err))
 	}
 
@@ -164,6 +246,10 @@ func (s *TimerServiceServer) StartTimerDB(ctx context.Context, req *dbtimer.Star
 		if err != nil {
 			// Если произошла ошибка подключения, логируем её и возвращаем ответ с ошибкой.
 			log.Printf("Ошибка обновления для закрытия таймера: %s", err)
+			errLogs := utils.SaveLogsError(ctx, clientLogs, database, userId, err.Error())
+			if errLogs != nil {
+				log.Printf("Ошибка обновления для закрытия таймера: %v", err)
+			}
 			return nil, status.Errorf(codes.Internal, fmt.Sprintf("Ошибка обновления для закрытия таймера: %s.", err))
 		}
 
@@ -171,6 +257,10 @@ func (s *TimerServiceServer) StartTimerDB(ctx context.Context, req *dbtimer.Star
 		tx, err := db.Begin()
 		if err != nil {
 			log.Printf("Не удалось начать транзакцию: %s", err)
+			errLogs := utils.SaveLogsError(ctx, clientLogs, database, userId, err.Error())
+			if errLogs != nil {
+				log.Printf("Не удалось начать транзакцию: %v", err)
+			}
 			return nil, status.Errorf(codes.Internal, fmt.Sprintf("Не удалось начать транзакцию: %s.", err))
 		}
 
@@ -182,8 +272,15 @@ func (s *TimerServiceServer) StartTimerDB(ctx context.Context, req *dbtimer.Star
     	`, userId)
 
 		if err != nil {
-			tx.Rollback()
+			err := tx.Rollback()
+			if err != nil {
+				return nil, err
+			}
 			log.Printf("Ошибка при закрытии старого таймера: %s", err)
+			errLogs := utils.SaveLogsError(ctx, clientLogs, database, userId, err.Error())
+			if errLogs != nil {
+				log.Printf("Ошибка при закрытии старого таймера: %v", err)
+			}
 			return nil, status.Errorf(codes.Internal, fmt.Sprintf("Ошибка при закрытии старого таймера: %s.", err))
 		}
 
@@ -194,14 +291,25 @@ func (s *TimerServiceServer) StartTimerDB(ctx context.Context, req *dbtimer.Star
     	`, userId, req.Description).Scan(&startTime, &endTime, &timerId)
 
 		if err != nil {
-			tx.Rollback()
+			err := tx.Rollback()
+			if err != nil {
+				return nil, err
+			}
 			log.Printf("Ошибка при создании нового таймера: %s", err)
+			errLogs := utils.SaveLogsError(ctx, clientLogs, database, userId, err.Error())
+			if errLogs != nil {
+				log.Printf("Ошибка при создании нового таймера: %v", err)
+			}
 			return nil, status.Errorf(codes.Internal, fmt.Sprintf("Ошибка при создании нового таймера: %s.", err))
 		}
 
 		// Завершение транзакции
 		if err = tx.Commit(); err != nil {
 			log.Printf("Не удалось зафиксировать транзакцию: %s", err)
+			errLogs := utils.SaveLogsError(ctx, clientLogs, database, userId, err.Error())
+			if errLogs != nil {
+				log.Printf("Не удалось зафиксировать транзакцию: %v", err)
+			}
 			return nil, status.Errorf(codes.Internal, fmt.Sprintf("Не удалось зафиксировать транзакцию: %s.", err))
 		}
 
@@ -215,6 +323,10 @@ func (s *TimerServiceServer) StartTimerDB(ctx context.Context, req *dbtimer.Star
 
 		if err != nil {
 			log.Printf("Ошибка при создании нового таймера: %s", err)
+			errLogs := utils.SaveLogsError(ctx, clientLogs, database, userId, err.Error())
+			if errLogs != nil {
+				log.Printf("Ошибка при создании нового таймера: %v", err)
+			}
 			return nil, status.Errorf(codes.Internal, fmt.Sprintf("Ошибка при создании нового таймера: %s.", err))
 
 		}
@@ -248,15 +360,47 @@ func (s *TimerServiceServer) GetWorkingTimerDB(ctx context.Context, req *dbtimer
 		return nil, status.Errorf(codes.Internal, "Не удалось получить метаданные из контекста")
 	}
 
+	token, err := utils.ExtractTokenFromContext(ctx)
+	if err != nil {
+		log.Printf("Не удалось извлечь токен для логирования: %v", err)
+		return nil, status.Errorf(codes.Unauthenticated, "Не удалось извлечь токен для логирования")
+	}
+
+	// Устанавливаем соединение с gRPC сервером Logs
+	clientLogs, err, conn := utils.GRPCServiceConnector(token, logs.NewLogsServiceClient)
+	if err != nil {
+		log.Printf("Не удалось подключиться к серверу: %v", err)
+		return nil, status.Errorf(codes.Unauthenticated, "Не удалось создать соединение с сервером Logs")
+	} else {
+		defer func(conn *grpc.ClientConn) {
+			err := conn.Close()
+			if err != nil {
+				log.Printf("Ошибка закрытия соединения: %v", err)
+				errLogs := utils.SaveLogsError(ctx, clientLogs, "", "", err.Error())
+				if errLogs != nil {
+					log.Printf("Ошибка закрытия соединения: %v", err)
+				}
+			}
+		}(conn)
+	}
+
 	// Извлекаем DatabaseName из метаданных
 	database := md["database"][0] // токен передается как "auth-token"
 	if len(database) == 0 {
+		errLogs := utils.SaveLogsError(ctx, clientLogs, "", "", "database не найдена в метаданных")
+		if errLogs != nil {
+			log.Printf("database не найдена в метаданных: %v", err)
+		}
 		return nil, status.Errorf(codes.Unauthenticated, "database не найдена в метаданных")
 	}
 
 	// Извлекаем userId из метаданных
 	userId := md["user-id"][0] // токен передается как "auth-token"
 	if len(userId) == 0 {
+		errLogs := utils.SaveLogsError(ctx, clientLogs, "", "", "userId не найден в метаданных")
+		if errLogs != nil {
+			log.Printf("userId не найден в метаданных: %v", err)
+		}
 		return nil, status.Errorf(codes.Unauthenticated, "userId не найден в метаданных")
 	}
 	// Открываем соединение с базой данных Авторизации
@@ -266,6 +410,10 @@ func (s *TimerServiceServer) GetWorkingTimerDB(ctx context.Context, req *dbtimer
 	if err != nil {
 		// Если произошла ошибка подключения, логируем её и возвращаем ответ с ошибкой.
 		log.Printf("Ошибка подключения к базе данных: %s", err)
+		errLogs := utils.SaveLogsError(ctx, clientLogs, database, userId, err.Error())
+		if errLogs != nil {
+			log.Printf("Ошибка подключения к базе данных: %v", err)
+		}
 		return nil, status.Errorf(codes.Internal, fmt.Sprintf("Ошибка подключения к базе данных: %s.", err))
 	}
 
@@ -285,6 +433,10 @@ func (s *TimerServiceServer) GetWorkingTimerDB(ctx context.Context, req *dbtimer
 
 	if err != nil {
 		log.Printf("Ошибка при закрытии старого таймера: %s", err)
+		errLogs := utils.SaveLogsError(ctx, clientLogs, database, userId, err.Error())
+		if errLogs != nil {
+			log.Printf("Ошибка при закрытии старого таймера: %v", err)
+		}
 		return nil, status.Errorf(codes.Internal, fmt.Sprintf("Ошибка при закрытии старого таймера: %s.", err))
 	}
 
@@ -316,15 +468,47 @@ func (s *TimerServiceServer) EndTimerDB(ctx context.Context, req *dbtimer.StartE
 		return nil, status.Errorf(codes.Internal, "Не удалось получить метаданные из контекста")
 	}
 
+	token, err := utils.ExtractTokenFromContext(ctx)
+	if err != nil {
+		log.Printf("Не удалось извлечь токен для логирования: %v", err)
+		return nil, status.Errorf(codes.Unauthenticated, "Не удалось извлечь токен для логирования")
+	}
+
+	// Устанавливаем соединение с gRPC сервером Logs
+	clientLogs, err, conn := utils.GRPCServiceConnector(token, logs.NewLogsServiceClient)
+	if err != nil {
+		log.Printf("Не удалось подключиться к серверу: %v", err)
+		return nil, status.Errorf(codes.Unauthenticated, "Не удалось создать соединение с сервером Logs")
+	} else {
+		defer func(conn *grpc.ClientConn) {
+			err := conn.Close()
+			if err != nil {
+				log.Printf("Ошибка закрытия соединения: %v", err)
+				errLogs := utils.SaveLogsError(ctx, clientLogs, "", "", err.Error())
+				if errLogs != nil {
+					log.Printf("Ошибка закрытия соединения: %v", err)
+				}
+			}
+		}(conn)
+	}
+
 	// Извлекаем DatabaseName из метаданных
 	database := md["database"][0] // токен передается как "auth-token"
 	if len(database) == 0 {
+		errLogs := utils.SaveLogsError(ctx, clientLogs, "", "", "database не найдена в метаданных")
+		if errLogs != nil {
+			log.Printf("database не найдена в метаданных: %v", err)
+		}
 		return nil, status.Errorf(codes.Unauthenticated, "database не найдена в метаданных")
 	}
 
 	// Извлекаем userId из метаданных
 	userId := md["user-id"][0] // токен передается как "auth-token"
 	if len(userId) == 0 {
+		errLogs := utils.SaveLogsError(ctx, clientLogs, "", "", "userId не найден в метаданных")
+		if errLogs != nil {
+			log.Printf("userId не найден в метаданных: %v", err)
+		}
 		return nil, status.Errorf(codes.Unauthenticated, "userId не найден в метаданных")
 	}
 
@@ -335,6 +519,10 @@ func (s *TimerServiceServer) EndTimerDB(ctx context.Context, req *dbtimer.StartE
 	if err != nil {
 		// Если произошла ошибка подключения, логируем её и возвращаем ответ с ошибкой.
 		log.Printf("Ошибка подключения к базе данных: %s", err)
+		errLogs := utils.SaveLogsError(ctx, clientLogs, database, userId, err.Error())
+		if errLogs != nil {
+			log.Printf("Ошибка подключения к базе данных: %v", err)
+		}
 		return nil, status.Errorf(codes.Internal, fmt.Sprintf("Ошибка подключения к базе данных: %s.", err))
 	}
 
@@ -351,6 +539,10 @@ func (s *TimerServiceServer) EndTimerDB(ctx context.Context, req *dbtimer.StartE
 
 	if err != nil {
 		log.Printf("Ошибка при закрытии старого таймера: %s", err)
+		errLogs := utils.SaveLogsError(ctx, clientLogs, database, userId, err.Error())
+		if errLogs != nil {
+			log.Printf("Ошибка при закрытии старого таймера: %v", err)
+		}
 		return nil, status.Errorf(codes.Internal, fmt.Sprintf("Ошибка при закрытии старого таймера: %s.", err))
 	}
 
@@ -377,6 +569,30 @@ func (s *TimerServiceServer) EndTimerDB(ctx context.Context, req *dbtimer.StartE
 
 func (s *TimerServiceServer) AddTimerDB(ctx context.Context, req *dbtimer.AddTimerRequestDB) (*dbtimer.AddTimerResponseDB, error) {
 
+	token, err := utils.ExtractTokenFromContext(ctx)
+	if err != nil {
+		log.Printf("Не удалось извлечь токен для логирования: %v", err)
+		return nil, status.Errorf(codes.Unauthenticated, "Не удалось извлечь токен для логирования")
+	}
+
+	// Устанавливаем соединение с gRPC сервером Logs
+	clientLogs, err, conn := utils.GRPCServiceConnector(token, logs.NewLogsServiceClient)
+	if err != nil {
+		log.Printf("Не удалось подключиться к серверу: %v", err)
+		return nil, status.Errorf(codes.Unauthenticated, "Не удалось создать соединение с сервером Logs")
+	} else {
+		defer func(conn *grpc.ClientConn) {
+			err := conn.Close()
+			if err != nil {
+				log.Printf("Ошибка закрытия соединения: %v", err)
+				errLogs := utils.SaveLogsError(ctx, clientLogs, "", "", err.Error())
+				if errLogs != nil {
+					log.Printf("Ошибка закрытия соединения: %v", err)
+				}
+			}
+		}(conn)
+	}
+
 	md, ok := metadata.FromIncomingContext(ctx)
 	if !ok {
 		return nil, status.Errorf(codes.Internal, "Не удалось получить метаданные из контекста")
@@ -385,12 +601,20 @@ func (s *TimerServiceServer) AddTimerDB(ctx context.Context, req *dbtimer.AddTim
 	// Извлекаем DatabaseName из метаданных
 	database := md["database"][0] // токен передается как "auth-token"
 	if len(database) == 0 {
+		errLogs := utils.SaveLogsError(ctx, clientLogs, "", "", "database не найдена в метаданных")
+		if errLogs != nil {
+			log.Printf("database не найдена в метаданных: %v", err)
+		}
 		return nil, status.Errorf(codes.Unauthenticated, "database не найдена в метаданных")
 	}
 
 	// Извлекаем userId из метаданных
 	userId := md["user-id"][0] // токен передается как "auth-token"
 	if len(userId) == 0 {
+		errLogs := utils.SaveLogsError(ctx, clientLogs, "", "", "userId не найден в метаданных")
+		if errLogs != nil {
+			log.Printf("userId не найден в метаданных: %v", err)
+		}
 		return nil, status.Errorf(codes.Unauthenticated, "userId не найден в метаданных")
 	}
 
@@ -401,6 +625,10 @@ func (s *TimerServiceServer) AddTimerDB(ctx context.Context, req *dbtimer.AddTim
 	if err != nil {
 		// Если произошла ошибка подключения, логируем её и возвращаем ответ с ошибкой.
 		log.Printf("Ошибка подключения к базе данных: %s", err)
+		errLogs := utils.SaveLogsError(ctx, clientLogs, database, userId, "userId не найден в метаданных")
+		if errLogs != nil {
+			log.Printf("Ошибка подключения к базе данных: %v", err)
+		}
 		return nil, status.Errorf(codes.Internal, fmt.Sprintf("Ошибка подключения к базе данных: %s.", err))
 	}
 
@@ -417,6 +645,10 @@ func (s *TimerServiceServer) AddTimerDB(ctx context.Context, req *dbtimer.AddTim
 
 	if err != nil {
 		log.Printf("Ошибка при создании нового таймера: %s", err)
+		errLogs := utils.SaveLogsError(ctx, clientLogs, "", "", "database не найдена в метаданных")
+		if errLogs != nil {
+			log.Printf("Ошибка при создании нового таймера: %v", err)
+		}
 		return nil, status.Errorf(codes.Internal, fmt.Sprintf("Ошибка при создании нового таймера: %s.", err))
 	}
 

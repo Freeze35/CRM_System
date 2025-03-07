@@ -2,10 +2,12 @@ package transport_rest
 
 import (
 	"context"
+	"crmSystem/proto/logs"
 	"crmSystem/transport_rest/types"
 	"crmSystem/utils"
 	"encoding/json"
 	"fmt"
+	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
@@ -82,20 +84,57 @@ func (h *Handler) CreateNewChat(w http.ResponseWriter, r *http.Request) {
 	ctxWithMetadata, cancel := context.WithTimeout(context.Background(), time.Second*10)
 	defer cancel()
 
+	// Устанавливаем соединение с gRPC сервером Logs
+	clientLogs, err, conn := utils.GRPCServiceConnector(token, logs.NewLogsServiceClient)
+	if err != nil {
+		log.Printf("Не удалось подключиться к серверу: %v", err)
+		utils.CreateError(w, http.StatusBadRequest, "Ошибка подключения", err)
+		return
+	} else {
+		defer func(conn *grpc.ClientConn) {
+			err := conn.Close()
+			if err != nil {
+				log.Printf("Ошибка закрытия соединения: %v", err)
+				errLogs := utils.SaveLogsError(ctxWithMetadata, clientLogs, database, userId, err.Error())
+				if errLogs != nil {
+					log.Printf("Ошибка закрытия соединения: %v", err)
+					return
+				}
+			}
+		}(conn)
+	}
+
 	// Подключение к gRPC серверу dbService
 	client, err, conn := utils.GRPCServiceConnector(token, dbchat.NewDbChatServiceClient)
 	if err != nil {
 		log.Printf("Не удалось подключиться к серверу: %v", err)
 		utils.CreateError(w, http.StatusBadRequest, "Ошибка подключения к dbchatclient", err)
+		errLogs := utils.SaveLogsError(ctxWithMetadata, clientLogs, database, userId, err.Error())
+		if errLogs != nil {
+			log.Printf("Отсутствуют необходимые метаданные: %v", err)
+		}
 		return
 	} else {
-		defer conn.Close()
+		defer func(conn *grpc.ClientConn) {
+			err := conn.Close()
+			if err != nil {
+				log.Printf("Ошибка закрытия соединения: %v", err)
+				errLogs := utils.SaveLogsError(ctxWithMetadata, clientLogs, database, userId, err.Error())
+				if errLogs != nil {
+					log.Printf("Ошибка закрытия соединения: %v", err)
+				}
+			}
+		}(conn)
 	}
 
 	var req types.CreateChatRequest
 	decoder := json.NewDecoder(r.Body)
 	if err := decoder.Decode(&req); err != nil {
 		utils.CreateError(w, http.StatusBadRequest, "Ошибка при декодировании данных.", err)
+		errLogs := utils.SaveLogsError(ctxWithMetadata, clientLogs, database, userId, err.Error())
+		if errLogs != nil {
+			log.Printf("Ошибка закрытия соединения: %v", err)
+		}
 		return
 	}
 
@@ -121,13 +160,21 @@ func (h *Handler) CreateNewChat(w http.ResponseWriter, r *http.Request) {
 			utils.CreateError(w, http.StatusBadRequest, fmt.Sprintf("ошибка при создании чата,неизвестная ошибка: %s", errorMessage), err)
 		}
 		utils.CreateError(w, http.StatusBadRequest, "Ошибка при создании чата.", err)
+		errLogs := utils.SaveLogsError(ctxWithMetadata, clientLogs, database, userId, err.Error())
+		if errLogs != nil {
+			log.Printf("Ошибка при создании чата: %v", err)
+		}
 		return
 	}
 
 	// Публикация сообщения в RabbitMQ
-	if err := h.publishToRabbitMQ(res.ChatId, req.UsersId); err != nil {
+	if err := h.publishToRabbitMQ(res.ChatId, req.UsersId, ctxWithMetadata, clientLogs, database, userId); err != nil {
 		log.Printf("Ошибка публикации в RabbitMQ: %v", err)
 		utils.CreateError(w, http.StatusInternalServerError, "Ошибка при публикации чата.", err)
+		errLogs := utils.SaveLogsError(ctxWithMetadata, clientLogs, database, userId, err.Error())
+		if errLogs != nil {
+			log.Printf("Ошибка публикации в RabbitMQ: %v", err)
+		}
 		return
 	}
 
@@ -135,16 +182,26 @@ func (h *Handler) CreateNewChat(w http.ResponseWriter, r *http.Request) {
 	_, err = w.Write([]byte("Чат создан и опубликован в RabbitMQ успешно"))
 	if err != nil {
 		utils.CreateError(w, http.StatusInternalServerError, "Ошибка при записи ответа.", err)
+		errLogs := utils.SaveLogsError(ctxWithMetadata, clientLogs, database, userId, err.Error())
+		if errLogs != nil {
+			log.Printf("Ошибка при записи ответа: %v", err)
+		}
 		return
 	}
 }
 
-func (h *Handler) publishToRabbitMQ(chatID int64, users []types.UserID) error {
+func (h *Handler) publishToRabbitMQ(chatID int64, users []types.UserID, ctxWithMetadata context.Context,
+	clientLogs logs.LogsServiceClient, database string, userId string) error {
 	channel, err := h.rabbitMQConn.Channel()
 	if err != nil {
 		return err
 	}
-	defer channel.Close()
+	defer func(channel *amqp.Channel) {
+		err := channel.Close()
+		if err != nil {
+			fmt.Printf("Ошибка закрытия канала LogsServiceClient")
+		}
+	}(channel)
 
 	// Генерируем уникальное имя очереди, основанное на chatID
 	queueName := fmt.Sprintf("chat_queue_%d", chatID)
@@ -172,6 +229,10 @@ func (h *Handler) publishToRabbitMQ(chatID int64, users []types.UserID) error {
 
 	messageBody, err := json.Marshal(message)
 	if err != nil {
+		errLogs := utils.SaveLogsError(ctxWithMetadata, clientLogs, database, userId, err.Error())
+		if errLogs != nil {
+			log.Printf("Ошибка при чтении Json: %v", err)
+		}
 		return err
 	}
 
@@ -194,12 +255,6 @@ func (h *Handler) SendMessage(w http.ResponseWriter, r *http.Request) {
 	//Данные из параметров маршрута /chats/{chatID}
 	vars := mux.Vars(r)
 	chatID := vars["chatID"]
-
-	var message types.ChatMessage
-	if err := json.NewDecoder(r.Body).Decode(&message); err != nil {
-		utils.CreateError(w, http.StatusBadRequest, "Ошибка декодирования сообщения", err)
-		return
-	}
 
 	// Получаем cookie с именами
 	token := utils.GetFromCookies(w, r, "auth-token")
@@ -227,6 +282,36 @@ func (h *Handler) SendMessage(w http.ResponseWriter, r *http.Request) {
 	ctxWithMetadata, cancel := context.WithTimeout(context.Background(), time.Second*10)
 	defer cancel()
 
+	// Устанавливаем соединение с gRPC сервером Logs
+	clientLogs, err, conn := utils.GRPCServiceConnector(token, logs.NewLogsServiceClient)
+	if err != nil {
+		log.Printf("Не удалось подключиться к серверу: %v", err)
+		utils.CreateError(w, http.StatusBadRequest, "Ошибка подключения", err)
+		return
+	} else {
+		defer func(conn *grpc.ClientConn) {
+			err := conn.Close()
+			if err != nil {
+				log.Printf("Ошибка закрытия соединения: %v", err)
+				errLogs := utils.SaveLogsError(ctxWithMetadata, clientLogs, database, userId, err.Error())
+				if errLogs != nil {
+					log.Printf("Ошибка закрытия соединения: %v", err)
+					return
+				}
+			}
+		}(conn)
+	}
+
+	var message types.ChatMessage
+	if err := json.NewDecoder(r.Body).Decode(&message); err != nil {
+		utils.CreateError(w, http.StatusBadRequest, "Ошибка декодирования сообщения", err)
+		errLogs := utils.SaveLogsError(ctxWithMetadata, clientLogs, database, userId, err.Error())
+		if errLogs != nil {
+			log.Printf("Ошибка декодирования сообщения: %v", err)
+		}
+		return
+	}
+
 	// Устанавливаем текущее время для сообщения
 	message.Time = time.Now()
 
@@ -239,9 +324,21 @@ func (h *Handler) SendMessage(w http.ResponseWriter, r *http.Request) {
 		channel, err := h.rabbitMQConn.Channel()
 		if err != nil {
 			errChan <- fmt.Errorf("Ошибка подключения к каналу RabbitMQ: %v", err)
+			errLogs := utils.SaveLogsError(ctxWithMetadata, clientLogs, database, userId, err.Error())
+			if errLogs != nil {
+				log.Printf("Ошибка подключения к каналу RabbitMQ: %v", err)
+			}
 			return
 		}
-		defer channel.Close()
+		defer func(channel *amqp.Channel) {
+			err := channel.Close()
+			if err != nil {
+				errLogs := utils.SaveLogsError(ctxWithMetadata, clientLogs, database, userId, err.Error())
+				if errLogs != nil {
+					log.Printf("Ошибка закрытия канала rabbitMQConn: %v", err)
+				}
+			}
+		}(channel)
 
 		// Объявление обменника
 		exchangeName := fmt.Sprintf("chat_exchange_%s", chatID)
@@ -249,6 +346,10 @@ func (h *Handler) SendMessage(w http.ResponseWriter, r *http.Request) {
 			exchangeName, "fanout", true, false, false, false, nil,
 		); err != nil {
 			errChan <- fmt.Errorf("Ошибка создания обменника: %v", err)
+			errLogs := utils.SaveLogsError(ctxWithMetadata, clientLogs, database, userId, err.Error())
+			if errLogs != nil {
+				log.Printf("Ошибка создания обменника: %v", err)
+			}
 			return
 		}
 
@@ -256,6 +357,10 @@ func (h *Handler) SendMessage(w http.ResponseWriter, r *http.Request) {
 		body, err := json.Marshal(message)
 		if err != nil {
 			errChan <- fmt.Errorf("Ошибка сериализации сообщения: %v", err)
+			errLogs := utils.SaveLogsError(ctxWithMetadata, clientLogs, database, userId, err.Error())
+			if errLogs != nil {
+				log.Printf("Ошибка сериализации сообщения: %v", err)
+			}
 			return
 		}
 
@@ -265,6 +370,10 @@ func (h *Handler) SendMessage(w http.ResponseWriter, r *http.Request) {
 			Body:        body,
 		}); err != nil {
 			errChan <- fmt.Errorf("Ошибка публикации сообщения: %v", err)
+			errLogs := utils.SaveLogsError(ctxWithMetadata, clientLogs, database, userId, err.Error())
+			if errLogs != nil {
+				log.Printf("Ошибка публикации сообщения: %v", err)
+			}
 			return
 		}
 
@@ -276,9 +385,21 @@ func (h *Handler) SendMessage(w http.ResponseWriter, r *http.Request) {
 		client, err, conn := utils.GRPCServiceConnector(token, dbchat.NewDbChatServiceClient)
 		if err != nil {
 			errChan <- fmt.Errorf("Ошибка подключения к gRPC серверу: %v", err)
+			errLogs := utils.SaveLogsError(ctxWithMetadata, clientLogs, database, userId, err.Error())
+			if errLogs != nil {
+				log.Printf("Ошибка подключения к gRPC серверу: %v", err)
+			}
 			return
 		} else {
-			defer conn.Close()
+			defer func(conn *grpc.ClientConn) {
+				err := conn.Close()
+				if err != nil {
+					errLogs := utils.SaveLogsError(ctxWithMetadata, clientLogs, database, userId, err.Error())
+					if errLogs != nil {
+						log.Printf("Ошибка закрытия канала NewDbChatServiceClient: %v", err)
+					}
+				}
+			}(conn)
 		}
 
 		// Формирование запроса
@@ -292,6 +413,10 @@ func (h *Handler) SendMessage(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			log.Printf("Ошибка сохранения сообщения в базе данных: %v", err)
 			errChan <- err
+			errLogs := utils.SaveLogsError(ctxWithMetadata, clientLogs, database, userId, err.Error())
+			if errLogs != nil {
+				log.Printf("Ошибка сохранения сообщения в базе данных: %v", err)
+			}
 			return
 		}
 
@@ -313,9 +438,16 @@ func (h *Handler) SendMessage(w http.ResponseWriter, r *http.Request) {
 	// Ответ клиенту в зависимости от результатов
 	if rabbitErr == nil && dbErr == nil {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("Сообщение отправлено и сохранено"))
+		_, err := w.Write([]byte("Сообщение отправлено и сохранено"))
+		if err != nil {
+			utils.CreateError(w, http.StatusInternalServerError, fmt.Sprintf("некорректная ошибка : %s", err), rabbitErr)
+		}
 	} else if rabbitErr != nil && dbErr != nil {
 		utils.CreateError(w, http.StatusInternalServerError, "Ошибка отправки и сохранения сообщения", fmt.Errorf("%v; %v", rabbitErr, dbErr))
+		errLogs := utils.SaveLogsError(ctxWithMetadata, clientLogs, database, userId, dbErr.Error())
+		if errLogs != nil {
+			log.Printf("Ошибка отправки и сохранения сообщения: %v", err)
+		}
 	} else if rabbitErr != nil {
 		// Получаем сообщение об ошибке
 		errorMessage := status.Convert(rabbitErr).Message()
@@ -326,8 +458,16 @@ func (h *Handler) SendMessage(w http.ResponseWriter, r *http.Request) {
 		// Логика в зависимости от кода ошибки
 		switch code {
 		case codes.Unauthenticated:
+			errLogs := utils.SaveLogsError(ctxWithMetadata, clientLogs, database, userId, errorMessage)
+			if errLogs != nil {
+				log.Printf("неизвестная ошибка: %v", errorMessage)
+			}
 			utils.CreateError(w, http.StatusBadRequest, fmt.Sprintf("неизвестная ошибка : %s", errorMessage), rabbitErr)
 		default:
+			errLogs := utils.SaveLogsError(ctxWithMetadata, clientLogs, database, userId, rabbitErr.Error())
+			if errLogs != nil {
+				log.Printf("Ошибка отправки сообщения в RabbitMQ: %v", rabbitErr)
+			}
 			utils.CreateError(w, http.StatusInternalServerError, "Ошибка отправки сообщения в RabbitMQ.", rabbitErr)
 		}
 
@@ -341,8 +481,16 @@ func (h *Handler) SendMessage(w http.ResponseWriter, r *http.Request) {
 		// Логика в зависимости от кода ошибки
 		switch code {
 		case codes.Unauthenticated:
+			errLogs := utils.SaveLogsError(ctxWithMetadata, clientLogs, database, userId, dbErr.Error())
+			if errLogs != nil {
+				log.Printf("Ошибка отправки и сохранения сообщения: %v", rabbitErr)
+			}
 			utils.CreateError(w, http.StatusBadRequest, fmt.Sprintf("неизвестная ошибка : %s", errorMessage), rabbitErr)
 		default:
+			errLogs := utils.SaveLogsError(ctxWithMetadata, clientLogs, database, userId, dbErr.Error())
+			if errLogs != nil {
+				log.Printf("Ошибка отправки и сохранения сообщения: %v", rabbitErr)
+			}
 			utils.CreateError(w, http.StatusInternalServerError, "Ошибка сохранения сообщения в базе данных", dbErr)
 		}
 
@@ -356,13 +504,70 @@ func (h *Handler) GetMessages(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	chatID := vars["chatID"]
 
+	token := utils.GetFromCookies(w, r, "auth-token")
+	if token == "" {
+		return
+	}
+
+	userId := utils.GetFromCookies(w, r, "user-id")
+	if userId == "" {
+		return
+	}
+
+	database := utils.GetFromCookies(w, r, "database")
+	if database == "" {
+		return
+	}
+
+	md := metadata.Pairs(
+		"user-id", userId,
+		"database", database,
+	)
+
+	ctxWithMetadata := metadata.NewOutgoingContext(context.Background(), md)
+
+	ctxWithMetadata, cancel := context.WithTimeout(context.Background(), time.Second*10)
+	defer cancel()
+
+	// Устанавливаем соединение с gRPC сервером Logs
+	clientLogs, err, conn := utils.GRPCServiceConnector(token, logs.NewLogsServiceClient)
+	if err != nil {
+		log.Printf("Не удалось подключиться к серверу: %v", err)
+		utils.CreateError(w, http.StatusBadRequest, "Ошибка подключения", err)
+		return
+	} else {
+		defer func(conn *grpc.ClientConn) {
+			err := conn.Close()
+			if err != nil {
+				log.Printf("Ошибка закрытия соединения: %v", err)
+				errLogs := utils.SaveLogsError(ctxWithMetadata, clientLogs, database, userId, err.Error())
+				if errLogs != nil {
+					log.Printf("Ошибка закрытия соединения: %v", err)
+					return
+				}
+			}
+		}(conn)
+	}
+
 	// Подключаемся к каналу RabbitMQ
 	channel, err := h.rabbitMQConn.Channel()
 	if err != nil {
 		utils.CreateError(w, http.StatusInternalServerError, "Ошибка подключения к каналу RabbitMQ", err)
+		errLogs := utils.SaveLogsError(ctxWithMetadata, clientLogs, database, userId, err.Error())
+		if errLogs != nil {
+			log.Printf("Ошибка подключения к каналу RabbitMQ: %v", err)
+		}
 		return
 	}
-	defer channel.Close()
+	defer func(channel *amqp.Channel) {
+		err := channel.Close()
+		if err != nil {
+			errLogs := utils.SaveLogsError(ctxWithMetadata, clientLogs, database, userId, err.Error())
+			if errLogs != nil {
+				log.Printf("Ошибка закрытия соединения: %v", err)
+			}
+		}
+	}(channel)
 
 	// Имя обменника
 	exchangeName := fmt.Sprintf("chat_exchange_%s", chatID)
@@ -378,12 +583,20 @@ func (h *Handler) GetMessages(w http.ResponseWriter, r *http.Request) {
 	)
 	if err != nil {
 		utils.CreateError(w, http.StatusInternalServerError, "Ошибка создания очереди", err)
+		errLogs := utils.SaveLogsError(ctxWithMetadata, clientLogs, database, userId, err.Error())
+		if errLogs != nil {
+			log.Printf("Ошибка подключения к каналу RabbitMQ: %v", err)
+		}
 		return
 	}
 
 	// Привязываем очередь к обменнику
 	if err := channel.QueueBind(queue.Name, "", exchangeName, false, nil); err != nil {
 		utils.CreateError(w, http.StatusInternalServerError, "Ошибка привязки очереди к обменнику", err)
+		errLogs := utils.SaveLogsError(ctxWithMetadata, clientLogs, database, userId, err.Error())
+		if errLogs != nil {
+			log.Printf("Ошибка привязки очереди к обменнику: %v", err)
+		}
 		return
 	}
 
@@ -399,6 +612,10 @@ func (h *Handler) GetMessages(w http.ResponseWriter, r *http.Request) {
 	)
 	if err != nil {
 		utils.CreateError(w, http.StatusInternalServerError, "Ошибка получения сообщений", err)
+		errLogs := utils.SaveLogsError(ctxWithMetadata, clientLogs, database, userId, err.Error())
+		if errLogs != nil {
+			log.Printf("Ошибка получения сообщений: %v", err)
+		}
 		return
 	}
 
@@ -412,6 +629,10 @@ loop:
 			var message types.ChatMessage
 			if err := json.Unmarshal(msg.Body, &message); err != nil {
 				log.Printf("Ошибка декодирования сообщения: %v", err)
+				errLogs := utils.SaveLogsError(ctxWithMetadata, clientLogs, database, userId, err.Error())
+				if errLogs != nil {
+					log.Printf("Ошибка декодирования сообщения: %v", err)
+				}
 				continue
 			}
 			response = append(response, message)
@@ -435,6 +656,10 @@ loop:
 	// Кодируем и отправляем ответ
 	if err := json.NewEncoder(w).Encode(response); err != nil {
 		utils.CreateError(w, http.StatusInternalServerError, "Ошибка отправки ответа", err)
+		errLogs := utils.SaveLogsError(ctxWithMetadata, clientLogs, database, userId, err.Error())
+		if errLogs != nil {
+			log.Printf("Ошибка отправки ответа: %v", err)
+		}
 		return
 	}
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crmSystem/migrations"
 	"crmSystem/proto/dbauth"
+	"crmSystem/proto/logs"
 	"crmSystem/proto/redis"
 	"crmSystem/utils"
 	"database/sql"
@@ -43,15 +44,41 @@ func (s *AuthServiceServer) LoginDB(ctx context.Context, req *dbauth.LoginDBRequ
 		return nil, status.Errorf(codes.Unauthenticated, "Токен не найден в метаданных")
 	}
 
-	// Проверяем пользователя, используя функцию checkUser.
-	dbName, userId, companyId, err := checkUser(s, req, token, ctx)
+	// Устанавливаем соединение с gRPC сервером Logs
+	clientLogs, err, conn := utils.GRPCServiceConnector(token, logs.NewLogsServiceClient)
 	if err != nil {
-		return nil, status.Errorf(codes.Internal, "Внутренняя ошибка: %v", err)
+		log.Printf("Не удалось подключиться к серверу: %v", err)
+		return nil, status.Errorf(codes.Unauthenticated, "Не удалось создать соединение с сервером Logs")
+	} else {
+		defer func(conn *grpc.ClientConn) {
+			err := conn.Close()
+			if err != nil {
+				log.Printf("Ошибка закрытия соединения: %v", err)
+				errLogs := utils.SaveLogsError(ctx, clientLogs, "", "", err.Error())
+				if errLogs != nil {
+					log.Printf("Ошибка закрытия соединения: %v", err)
+				}
+			}
+		}(conn)
+	}
+
+	// Проверяем пользователя, используя функцию checkUser.
+	dbName, userId, companyId, err := checkUser(s, req, token, ctx, clientLogs)
+	if err != nil {
+		errLogs := utils.SaveLogsError(ctx, clientLogs, "", "", err.Error())
+		if errLogs != nil {
+			log.Printf("Внутренняя ошибка проверки пользователя: %v", err)
+		}
+		return nil, status.Errorf(codes.Internal, "Внутренняя ошибка проверки пользователя: %v", err)
 	}
 
 	//Проверяем найдена ли база данных для данного пользователя
 	if dbName == "" {
 		// Если база данных не найдена, формируем ответ с сообщением об ошибке.
+		errLogs := utils.SaveLogsError(ctx, clientLogs, "", "", "Ошибка нахождения базы данных")
+		if errLogs != nil {
+			log.Printf("Ошибка нахождения базы данных: %v", err)
+		}
 		return nil, status.Errorf(codes.NotFound, "Ошибка нахождения базы данных: %v", err)
 	}
 
@@ -65,6 +92,10 @@ func (s *AuthServiceServer) LoginDB(ctx context.Context, req *dbauth.LoginDBRequ
 	// Добавляем метаданные в контекст
 	err = grpc.SendHeader(ctx, md)
 	if err != nil {
+		errLogs := utils.SaveLogsError(ctx, clientLogs, dbName, userId, err.Error())
+		if errLogs != nil {
+			log.Printf("Ошибка установки метаданных: %v", err)
+		}
 		return nil, status.Errorf(codes.Internal, "Ошибка установки метаданных: %v", err)
 	}
 
@@ -77,7 +108,8 @@ func (s *AuthServiceServer) LoginDB(ctx context.Context, req *dbauth.LoginDBRequ
 }
 
 // checkUser проверяет пользователя в базе данных авторизации и возвращает имя базы данных компании.
-func checkUser(server *AuthServiceServer, req *dbauth.LoginDBRequest, token string, ctx context.Context) (dbName string, userId string, companyID string, err error) {
+func checkUser(server *AuthServiceServer, req *dbauth.LoginDBRequest, token string,
+	ctx context.Context, clientLogs logs.LogsServiceClient) (dbName string, userId string, companyID string, err error) {
 	// Формируем строку соединения с базой данных авторизации.
 	dsn := utils.DsnString(os.Getenv("DB_AUTH_NAME"))
 	// Получаем соединение с базой данных.
@@ -90,7 +122,11 @@ func checkUser(server *AuthServiceServer, req *dbauth.LoginDBRequest, token stri
 
 	//Проверка ошибки при получении
 	if err != nil {
-		log.Printf(err.Error())
+		errLogs := utils.SaveLogsError(ctx, clientLogs, dbName, userId, err.Error())
+		if errLogs != nil {
+			log.Printf("Ошибка при получении соединения из connectionsMap: %v", err)
+		}
+		log.Printf("Ошибка при получении соединения из connectionsMap")
 	}
 
 	client, err, connRedis := utils.RedisServiceConnector(token)
@@ -100,7 +136,15 @@ func checkUser(server *AuthServiceServer, req *dbauth.LoginDBRequest, token stri
 		return "", "", "", err
 	}
 
-	defer connRedis.Close()
+	defer func(connRedis *grpc.ClientConn) {
+		err := connRedis.Close()
+		if err != nil {
+			errLogs := utils.SaveLogsError(ctx, clientLogs, dbName, userId, err.Error())
+			if errLogs != nil {
+				log.Printf("Ошибка закрытия соединения c Redis: %v", err)
+			}
+		}
+	}(connRedis)
 
 	// Формируем запрос на регистрацию компании
 	req1 := &redis.GetRedisRequest{
@@ -114,7 +158,11 @@ func checkUser(server *AuthServiceServer, req *dbauth.LoginDBRequest, token stri
 	resRedis, err := client.Get(ctx, req1)
 	if err != nil {
 		log.Printf("Ошибка подключения базы данных: %s", err) // Логируем ошибку подключения.
-		return "", "", "", err                                // Возвращаем пустую строку и ошибку.
+		errLogs := utils.SaveLogsError(ctx, clientLogs, dbName, userId, err.Error())
+		if errLogs != nil {
+			log.Printf("Ошибка подключения базы данных: %v", err)
+		}
+		return "", "", "", err // Возвращаем пустую строку и ошибку.
 	}
 
 	type DbName struct {
@@ -127,6 +175,10 @@ func checkUser(server *AuthServiceServer, req *dbauth.LoginDBRequest, token stri
 
 		convertedRedis, err := utils.ConvertJSONToStruct[DbName](resRedis.Message)
 		if err != nil {
+			errLogs := utils.SaveLogsError(ctx, clientLogs, dbName, userId, err.Error())
+			if errLogs != nil {
+				log.Printf("Ошибка ConvertJSONToStruct convertedRedis: %v", err)
+			}
 			return "", "", "", err
 		}
 
@@ -152,7 +204,15 @@ func checkUser(server *AuthServiceServer, req *dbauth.LoginDBRequest, token stri
 
 	if err != nil {
 		if err == sql.ErrNoRows {
+			errLogs := utils.SaveLogsError(ctx, clientLogs, dbName, userId, err.Error())
+			if errLogs != nil {
+				log.Printf("Пользователь не найден: %v", err)
+			}
 			return "", "", "", fmt.Errorf("Пользователь не найден") // Пользователь не найден, возвращаем ошибку.
+		}
+		errLogs := utils.SaveLogsError(ctx, clientLogs, dbName, userId, err.Error())
+		if errLogs != nil {
+			log.Printf("Ошибка при выполнении запроса: %v", err)
 		}
 		return "", "", "", err // Возвращаем ошибку при выполнении запроса.
 	}
@@ -169,6 +229,10 @@ func checkUser(server *AuthServiceServer, req *dbauth.LoginDBRequest, token stri
 
 	if err != nil {
 		if err == sql.ErrNoRows {
+			errLogs := utils.SaveLogsError(ctx, clientLogs, dbName, userId, err.Error())
+			if errLogs != nil {
+				log.Printf("Запись о базе данных не найден: %v", err)
+			}
 			return "", "", "", fmt.Errorf("запись о базе данных не найден") // Если компании не найдены, возвращаем пустую строку.
 		}
 		return "", "", "", err // Возвращаем ошибку при выполнении запроса.
@@ -181,6 +245,10 @@ func checkUser(server *AuthServiceServer, req *dbauth.LoginDBRequest, token stri
 
 	if dbConnCompany == nil {
 		log.Println("Ошибка: соединение с базой данных компании не инициализировано")
+		errLogs := utils.SaveLogsError(ctx, clientLogs, dbName, userId, "Ошибка: соединение с базой данных компании не инициализировано")
+		if errLogs != nil {
+			log.Printf("Ошибка: соединение с базой данных компании не инициализировано: %v", err)
+		}
 		return "", "", "", fmt.Errorf("соединение с базой данных компании не инициализировано") // Возвращаем ошибку, если соединение не удалось.
 	}
 
@@ -195,6 +263,10 @@ func checkUser(server *AuthServiceServer, req *dbauth.LoginDBRequest, token stri
 	err = dbConnCompany.QueryRow("SELECT id FROM users WHERE authId = $1", authUserId).Scan(&userId)
 
 	if err != nil {
+		errLogs := utils.SaveLogsError(ctx, clientLogs, dbName, userId, err.Error())
+		if errLogs != nil {
+			log.Printf("Не удалось найти пользователя в базе данных компании: %v", err)
+		}
 		return "", "", "", fmt.Errorf("не удалось найти пользователя в базе данных компании: %v", err) // Возвращаем ошибку, если вставка не удалась.
 	}
 
@@ -217,7 +289,11 @@ func checkUser(server *AuthServiceServer, req *dbauth.LoginDBRequest, token stri
 	_, err = client.Save(ctx, saveRequest)
 
 	if err != nil {
-		fmt.Printf(err.Error())
+		errLogs := utils.SaveLogsError(ctx, clientLogs, dbName, userId, err.Error())
+		if errLogs != nil {
+			log.Printf("Ошибка выполнения gRPC вызова RegisterCompany: %v", err)
+		}
+		fmt.Printf("Ошибка выполнения gRPC вызова RegisterCompany")
 	}
 
 	return dbName, userId, companyID, nil // Возвращаем имя базы данных и nil в качестве ошибки, если все прошло успешно.
@@ -228,27 +304,56 @@ func (s *AuthServiceServer) RegisterCompany(ctx context.Context, req *dbauth.Reg
 	/* Логируем получение запроса на регистрацию компании с именем из запроса.
 	log.Printf("Получен запрос на регистрацию организации: %v", req.NameCompany)*/
 
-	md, ok := metadata.FromIncomingContext(ctx)
+	/*md, ok := metadata.FromIncomingContext(ctx)
 	if !ok {
 		return nil, status.Errorf(codes.Internal, "Не удалось получить метаданные из контекста")
 	}
 
 	// Извлекаем токен из метаданных
 	token := md["auth-token"] // предполагаем, что токен передается как "auth-token"
+	*/
+
+	token, err := utils.ExtractTokenFromContext(ctx)
+	if err != nil {
+		log.Printf("Не удалось извлечь токен для логирования: %v", err)
+		return nil, status.Errorf(codes.Unauthenticated, "Не удалось извлечь токен для логирования")
+	}
 
 	if len(token) == 0 {
 		return nil, status.Errorf(codes.Unauthenticated, "Токен не найден в метаданных")
 	}
 
+	// Устанавливаем соединение с gRPC сервером Logs
+	clientLogs, err, conn := utils.GRPCServiceConnector(token, logs.NewLogsServiceClient)
+	if err != nil {
+		log.Printf("Не удалось подключиться к серверу: %v", err)
+		return nil, status.Errorf(codes.Unauthenticated, "Не удалось создать соединение с сервером Logs")
+	} else {
+		defer func(conn *grpc.ClientConn) {
+			err := conn.Close()
+			if err != nil {
+				log.Printf("Ошибка закрытия соединения: %v", err)
+				errLogs := utils.SaveLogsError(ctx, clientLogs, "", "", err.Error())
+				if errLogs != nil {
+					log.Printf("Ошибка закрытия соединения: %v", err)
+				}
+			}
+		}(conn)
+	}
+
 	// Вызываем функцию registerCompany для создания базы данных и регистрации компании.
-	dbName, companyId, userId, statusRegister, err := registerCompany(s, req, token[0])
+	dbName, companyId, userId, statusRegister, err := registerCompany(s, req, token)
 	if err != nil {
 		// Если произошла ошибка, формируем ответ с сообщением об ошибке.
+		errLogs := utils.SaveLogsError(ctx, clientLogs, "", "", err.Error())
+		if errLogs != nil {
+			log.Printf("Ошибка вызова регистрации компании: %v", errLogs)
+		}
 		return nil, status.Errorf(statusRegister, fmt.Sprintf("Ошибка вызова регистрации компании: %v", err))
 	}
 
 	// Создаем метаданные с Database и CompanyId
-	md = metadata.Pairs(
+	md := metadata.Pairs(
 		"database", dbName,
 		"user-id", userId,
 		"company-id", companyId,
@@ -257,6 +362,10 @@ func (s *AuthServiceServer) RegisterCompany(ctx context.Context, req *dbauth.Reg
 	// Добавляем метаданные в контекст
 	err = grpc.SendHeader(ctx, md)
 	if err != nil {
+		errLogs := utils.SaveLogsError(ctx, clientLogs, dbName, userId, err.Error())
+		if errLogs != nil {
+			log.Printf("Ошибка вызова регистрации компании: %v", err)
+		}
 		return nil, status.Errorf(codes.Internal, fmt.Sprintf("Ошибка установки метаданных: %v", err))
 	}
 
@@ -310,7 +419,12 @@ func registerCompany(server *AuthServiceServer, req *dbauth.RegisterCompanyReque
 		fmt.Printf("Ошибка Подключение к redis : " + err.Error())
 		return "", "", "", codes.Internal, err
 	} else {
-		defer connRedis.Close()
+		defer func(connRedis *grpc.ClientConn) {
+			err := connRedis.Close()
+			if err != nil {
+				log.Printf(err.Error())
+			}
+		}(connRedis)
 	}
 
 	// Формируем запрос на регистрацию компании
@@ -352,6 +466,7 @@ func registerCompany(server *AuthServiceServer, req *dbauth.RegisterCompanyReque
 		// Получаем соединение с базой данных авторизации.
 		dbConn, err := server.connectionsMap.GetDb(dsn)
 		if err != nil {
+
 			return "", "", "", codes.Internal, err // Возвращаем ошибку, если соединение не удалось.
 		}
 
@@ -369,7 +484,7 @@ func registerCompany(server *AuthServiceServer, req *dbauth.RegisterCompanyReque
 
 		defer func() { // Отложенная функция для отката транзакции в случае ошибки.
 			if err != nil {
-				_ = tx.Rollback()                                                 // Откатываем транзакцию.
+				_ = tx.Rollback()
 				log.Printf("Транзакция откатана (auth DB) из-за ошибки: %v", err) // Логируем откат.
 			}
 		}()
@@ -411,7 +526,7 @@ func registerCompany(server *AuthServiceServer, req *dbauth.RegisterCompanyReque
 		}
 
 		// Создаем базу данных для компании.
-		err = createClientDatabase(newDbName, server)
+		err = createClientDatabase(newDbName, server, ctx)
 		if err != nil {
 			return "", "", "", codes.Internal, err // Возвращаем ошибку, если создание базы данных не удалось.
 		}
@@ -435,7 +550,9 @@ func registerCompany(server *AuthServiceServer, req *dbauth.RegisterCompanyReque
 				_ = txc.Rollback()                                                   // Откатываем транзакцию.
 				log.Printf("Транзакция откатана (company DB) из-за ошибки: %v", err) // Логируем откат.
 				// Откат действий в первой базе данных.
-				rollbackAuthDB(dbConn, companyId, authUserId)
+				err = rollbackAuthDB(dbConn, companyId, authUserId, ctx)
+				log.Printf("Не удалось откатить транзакцию: %v", err)
+				//return "", "", "", codes.Internal, fmt.Errorf("не удалось откатить транзакцию: %v", err)
 			}
 		}()
 
@@ -495,7 +612,7 @@ func registerCompany(server *AuthServiceServer, req *dbauth.RegisterCompanyReque
 			Expiration: int64((time.Minute * 10).Seconds()),
 		}
 
-		// Выполняем gRPC вызов RegisterCompany
+		// Выполняем gRPC вызов Сохранения в REdis
 		_, err = client.Save(ctx, saveRequest)
 
 		if err != nil {
@@ -523,7 +640,7 @@ func registerCompany(server *AuthServiceServer, req *dbauth.RegisterCompanyReque
 // 3. Подключается к только что созданной базе данных с помощью функции GetDb.
 // 4. Выполняет миграцию для таблицы users, используя указанный путь к миграциям (MIGRATION_COMPANYDB_PATH).
 // 5. Возвращает имя созданной базы данных и nil, если все операции выполнены успешно.
-func createClientDatabase(dbName string, server *AuthServiceServer) (err error) {
+func createClientDatabase(dbName string, server *AuthServiceServer, ctx context.Context) (err error) {
 
 	// Функция проверки и создания базы данных
 	err = utils.CreateInsideDB(dbName)
@@ -557,28 +674,34 @@ func createClientDatabase(dbName string, server *AuthServiceServer) (err error) 
 }
 
 // rollbackAuthDB откатывает изменения в базе данных авторизации, удаляя пользователя и компанию.
-func rollbackAuthDB(dbConn *sql.DB, companyId, authUserId string) {
+func rollbackAuthDB(dbConn *sql.DB, companyId, authUserId string, ctx context.Context) error {
 	// Начинаем откатную транзакцию.
 	tx, err := dbConn.Begin()
 	if err != nil {
 		log.Printf("Ошибка при начале откатной транзакции: %v", err) // Логируем ошибку, если не удалось начать транзакцию.
-		return                                                       // Завершаем выполнение функции.
+		return err                                                   // Завершаем выполнение функции.
 	}
 
 	// Удаляем пользователя из таблицы authusers по его ID.
 	_, err = tx.Exec("DELETE FROM authusers WHERE id = $1", authUserId)
 	if err != nil {
-		tx.Rollback()                                           // Откатываем транзакцию в случае ошибки.
+		err := tx.Rollback()
+		if err != nil {
+			return err
+		} // Откатываем транзакцию в случае ошибки.
 		log.Printf("Ошибка при удалении пользователя: %v", err) // Логируем ошибку.
-		return                                                  // Завершаем выполнение функции.
+		return err                                              // Завершаем выполнение функции.
 	}
 
 	// Удаляем компанию из таблицы companies по её ID.
 	_, err = tx.Exec("DELETE FROM companies WHERE id = $1", companyId)
 	if err != nil {
-		tx.Rollback()                                       // Откатываем транзакцию в случае ошибки.
+		err := tx.Rollback()
+		if err != nil {
+			return err
+		} // Откатываем транзакцию в случае ошибки.
 		log.Printf("Ошибка при удалении компании: %v", err) // Логируем ошибку.
-		return                                              // Завершаем выполнение функции.
+		return err                                          // Завершаем выполнение функции.
 	}
 
 	// Фиксируем откат транзакции.
@@ -586,4 +709,5 @@ func rollbackAuthDB(dbConn *sql.DB, companyId, authUserId string) {
 	if err != nil {
 		log.Printf("Ошибка при фиксации отката: %v", err) // Логируем ошибку, если фиксация не удалась.
 	}
+	return nil
 }

@@ -41,21 +41,25 @@ proto-dbchat:
 proto-dbadmin:
 	protoc --go_out=./dbservice/proto --go-grpc_out=./dbservice/proto ./dbservice/proto/dbadmin.proto
 	protoc --go_out=./admin_control/proto --go-grpc_out=./admin_control/proto ./dbservice/proto/dbadmin.proto
-
 proto-redis:
 	protoc --go_out=./redis/proto --go-grpc_out=./redis/proto ./redis/proto/redis_service.proto
 	protoc --go_out=./dbservice/proto --go-grpc_out=./dbservice/proto ./redis/proto/redis_service.proto
-
 proto-chats:
 	protoc --go_out=./chats/proto --go-grpc_out=./chats/proto ./chats/proto/chat.proto
 	protoc --go_out=./chats/proto --go-grpc_out=./chats/proto ./dbservice/proto/dbservice.proto
-
 proto-email-service:
 	protoc --go_out=./email-service/proto --go-grpc_out=./email-service/proto ./email-service/proto/email.proto
 	protoc --go_out=./admin_control/proto --go-grpc_out=./admin_control/proto ./email-service/proto/email.proto
-
 proto-logs:
 	protoc --go_out=./logs/proto --go-grpc_out=./logs/proto ./logs/proto/logs.proto
+	protoc --go_out=./admin_control/proto --go-grpc_out=./admin_control/proto ./logs/proto/logs.proto
+	protoc --go_out=./auth/proto --go-grpc_out=./auth/proto ./logs/proto/logs.proto
+	protoc --go_out=./chat_client/proto --go-grpc_out=./chat_client/proto ./logs/proto/logs.proto
+	protoc --go_out=./chats/proto --go-grpc_out=./chats/proto ./logs/proto/logs.proto
+	protoc --go_out=./dbservice/proto --go-grpc_out=./dbservice/proto ./logs/proto/logs.proto
+	protoc --go_out=./email-service/proto --go-grpc_out=./email-service/proto ./logs/proto/logs.proto
+	protoc --go_out=./redis/proto --go-grpc_out=./redis/proto ./logs/proto/logs.proto
+	protoc --go_out=./timer/proto --go-grpc_out=./timer/proto ./logs/proto/logs.proto
 
 #Создать ключи для jwt token (при генерации публичного потребуется ввести пароль создания )
 opensslkeys:
