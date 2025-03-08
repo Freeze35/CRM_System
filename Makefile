@@ -67,9 +67,16 @@ opensslkeys:
 	openssl rsa -in ./auth/opensslkeys/private_key.pem -pubout -out ./auth/opensslkeys/public_key.pem
 	copy .\auth\opensslkeys\private_key.pem .\nginx\opensslkeys\private_key.pem
 	copy .\auth\opensslkeys\public_key.pem .\nginx\opensslkeys\public_key.pem
-
-auth-ssl:
-	openssl req -x509 -newkey rsa:4096 -keyout ./auth/ssl/key.pem -out ./auth/ssl/cert.pem -days 365 -nodes
+	copy .\auth\opensslkeys\private_key.pem .\chats\opensslkeys\private_key.pem
+	copy .\auth\opensslkeys\public_key.pem .\chats\opensslkeys\public_key.pem
+	copy .\auth\opensslkeys\private_key.pem .\admin_control\opensslkeys\private_key.pem
+	copy .\auth\opensslkeys\public_key.pem .\admin_control\opensslkeys\public_key.pem
+	copy .\auth\opensslkeys\private_key.pem .\dbservice\opensslkeys\private_key.pem
+	copy .\auth\opensslkeys\public_key.pem .\dbservice\opensslkeys\public_key.pem
+	copy .\auth\opensslkeys\private_key.pem .\email-service\opensslkeys\private_key.pem
+	copy .\auth\opensslkeys\public_key.pem .\email-service\opensslkeys\public_key.pem
+	copy .\auth\opensslkeys\private_key.pem .\chat_client\opensslkeys\private_key.pem
+	copy .\auth\opensslkeys\public_key.pem .\chat_client\opensslkeys\public_key.pem
 
 # Создание ключа для CA
 1_ca-key:

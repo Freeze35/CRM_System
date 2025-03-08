@@ -121,7 +121,6 @@ func (h *Handler) AddUsers(w http.ResponseWriter, r *http.Request) {
 			}
 			return
 		}
-
 	}
 
 	// Устанавливаем соединение с gRPC сервером dbService

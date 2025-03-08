@@ -155,6 +155,7 @@ func main() {
 			MaxConnectionAgeGrace: 5 * time.Minute,
 			Time:                  5 * time.Second, // Таймаут на соединение
 		}),
+		grpc.UnaryInterceptor(utils.RecoveryInterceptor),
 	}
 
 	// Создаем gRPC сервер
