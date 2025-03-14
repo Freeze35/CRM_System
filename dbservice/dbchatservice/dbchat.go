@@ -60,24 +60,26 @@ func (s *ChatServiceServer) CreateChat(ctx context.Context, req *dbchat.CreateCh
 	}
 
 	// Извлекаем DatabaseName из метаданных
-	database := md["database"][0] // токен передается как "auth-token"
-	if len(database) == 0 {
+	dbCheck := md["database"]
+	if len(dbCheck) == 0 {
 		errLogs := utils.SaveLogsError(ctx, clientLogs, "", "", "database не найдена в метаданных")
 		if errLogs != nil {
 			log.Printf("database не найдена в метаданных: %v", err)
 		}
 		return nil, status.Errorf(codes.Unauthenticated, "database не найдена в метаданных")
 	}
+	database := md["database"][0]
 
-	// Извлекаем userId из метаданных
-	userId := md["user-id"][0] // токен передается как "auth-token"
-	if len(userId) == 0 {
-		errLogs := utils.SaveLogsError(ctx, clientLogs, "", "", "userId не найден в метаданных")
+	// Извлекаем UserId из метаданных
+	uIdCheck := md["user-id"]
+	if len(uIdCheck) == 0 {
+		errLogs := utils.SaveLogsError(ctx, clientLogs, database, "", "userId не найдена в метаданных")
 		if errLogs != nil {
-			log.Printf("userId не найден в метаданных: %v", err)
+			log.Printf("userId не найдена в метаданных: %v", err)
 		}
-		return nil, status.Errorf(codes.Unauthenticated, "userId не найден в метаданных")
+		return nil, status.Errorf(codes.Unauthenticated, "userId не найдена в метаданных")
 	}
+	userId := md["user-id"][0]
 
 	log.Printf("CreateChat: %s", "CreateChat")
 	// Получаем строку подключения к базе данных
@@ -164,10 +166,15 @@ func (s *ChatServiceServer) AddUsersToChat(ctx context.Context, req *dbchat.AddU
 	}
 
 	// Извлекаем DatabaseName из метаданных
-	database := md["database"][0] // токен передается как "auth-token"
-	if len(database) == 0 {
+	dbCheck := md["database"]
+	if len(dbCheck) == 0 {
+		errLogs := utils.SaveLogsError(ctx, clientLogs, "", "", "database не найдена в метаданных")
+		if errLogs != nil {
+			log.Printf("database не найдена в метаданных")
+		}
 		return nil, status.Errorf(codes.Unauthenticated, "database не найдена в метаданных")
 	}
+	database := md["database"][0]
 
 	// Получаем строку подключения к базе данных
 	dsn := utils.DsnString(database)
@@ -279,24 +286,26 @@ func (s *ChatServiceServer) SaveMessage(ctx context.Context, req *dbchat.SaveMes
 	}
 
 	// Извлекаем DatabaseName из метаданных
-	database := md["database"][0] // токен передается как "auth-token"
-	if len(database) == 0 {
+	dbCheck := md["database"]
+	if len(dbCheck) == 0 {
 		errLogs := utils.SaveLogsError(ctx, clientLogs, "", "", "database не найдена в метаданных")
 		if errLogs != nil {
 			log.Printf("database не найдена в метаданных: %v", err)
 		}
 		return nil, status.Errorf(codes.Unauthenticated, "database не найдена в метаданных")
 	}
+	database := md["database"][0]
 
 	// Извлекаем UserId из метаданных
-	userId := md["user-id"][0] // токен передается как "auth-token"
-	if len(userId) == 0 {
-		errLogs := utils.SaveLogsError(ctx, clientLogs, "", "", "userId не найдена в метаданных")
+	uIdCheck := md["user-id"]
+	if len(uIdCheck) == 0 {
+		errLogs := utils.SaveLogsError(ctx, clientLogs, database, "", "userId не найдена в метаданных")
 		if errLogs != nil {
 			log.Printf("userId не найдена в метаданных: %v", err)
 		}
 		return nil, status.Errorf(codes.Unauthenticated, "userId не найдена в метаданных")
 	}
+	userId := md["user-id"][0]
 
 	// Получаем строку подключения к базе данных
 	dsn := utils.DsnString(database)

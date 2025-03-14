@@ -59,7 +59,7 @@ func convertToProtoUsers(users []types.UserID) []*dbchat.UserId {
 func (h *Handler) CreateNewChat(w http.ResponseWriter, r *http.Request) {
 
 	// Получаем cookie с именами
-	token := utils.GetFromCookies(w, r, "auth-token")
+	token := utils.GetFromCookies(w, r, "access-token")
 	if token == "" {
 		return
 	}
@@ -98,8 +98,8 @@ func (h *Handler) CreateNewChat(w http.ResponseWriter, r *http.Request) {
 				errLogs := utils.SaveLogsError(ctxWithMetadata, clientLogs, database, userId, err.Error())
 				if errLogs != nil {
 					log.Printf("Ошибка закрытия соединения: %v", err)
-					return
 				}
+				return
 			}
 		}(conn)
 	}
@@ -257,7 +257,7 @@ func (h *Handler) SendMessage(w http.ResponseWriter, r *http.Request) {
 	chatID := vars["chatID"]
 
 	// Получаем cookie с именами
-	token := utils.GetFromCookies(w, r, "auth-token")
+	token := utils.GetFromCookies(w, r, "access-token")
 	if token == "" {
 		return
 	}
@@ -504,7 +504,7 @@ func (h *Handler) GetMessages(w http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	chatID := vars["chatID"]
 
-	token := utils.GetFromCookies(w, r, "auth-token")
+	token := utils.GetFromCookies(w, r, "access-token")
 	if token == "" {
 		return
 	}

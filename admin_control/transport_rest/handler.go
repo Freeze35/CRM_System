@@ -44,18 +44,21 @@ func (h *Handler) InitRouter() *mux.Router {
 func (h *Handler) AddUsers(w http.ResponseWriter, r *http.Request) {
 
 	// Получаем cookie с именами
-	token := utils.GetFromCookies(w, r, "auth-token")
+	token := utils.GetFromCookies(w, r, "access_token")
 	if token == "" {
+		utils.CreateError(w, http.StatusBadRequest, "Токен не найден", fmt.Errorf(""))
 		return
 	}
 
 	userId := utils.GetFromCookies(w, r, "user-id")
 	if userId == "" {
+		utils.CreateError(w, http.StatusBadRequest, "user-id не найден", fmt.Errorf(""))
 		return
 	}
 
 	database := utils.GetFromCookies(w, r, "database")
 	if database == "" {
+		utils.CreateError(w, http.StatusBadRequest, "database не найдена", fmt.Errorf(""))
 		return
 	}
 
@@ -84,8 +87,8 @@ func (h *Handler) AddUsers(w http.ResponseWriter, r *http.Request) {
 				errLogs := utils.SaveLogsError(ctxWithMetadata, clientLogs, database, userId, err.Error())
 				if errLogs != nil {
 					log.Printf("Ошибка закрытия соединения: %v", err)
-					return
 				}
+				return
 			}
 		}(conn)
 	}
@@ -93,8 +96,7 @@ func (h *Handler) AddUsers(w http.ResponseWriter, r *http.Request) {
 	var reqUsers types.RegisterUsersRequest
 	decoder := json.NewDecoder(r.Body)
 	if err := decoder.Decode(&reqUsers); err != nil {
-		http.Error(w, "Ошибка при декодировании данных", http.StatusBadRequest)
-
+		utils.CreateError(w, http.StatusBadRequest, "Ошибка при декодировании данных", err)
 		errLogs := utils.SaveLogsError(ctxWithMetadata, clientLogs, database, userId, err.Error())
 		if errLogs != nil {
 			log.Printf("Ошибка при декодировании данных: %v", err)
@@ -141,8 +143,8 @@ func (h *Handler) AddUsers(w http.ResponseWriter, r *http.Request) {
 				errLogs := utils.SaveLogsError(ctxWithMetadata, clientLogs, database, userId, err.Error())
 				if errLogs != nil {
 					log.Printf("Ошибка закрытия соединения: %v", err)
-					return
 				}
+				return
 			}
 		}(conn)
 	}
@@ -157,13 +159,6 @@ func (h *Handler) AddUsers(w http.ResponseWriter, r *http.Request) {
 		}
 		return
 	}
-
-	/*var req types.SendEmailRequest
-	decoder := json.NewDecoder(r.Body)
-	if err := decoder.Decode(&req); err != nil {
-		http.Error(w, "Ошибка при декодировании данных", http.StatusBadRequest)
-		return
-	}*/
 
 	// Устанавливаем соединение с gRPC сервером dbService
 	clientEmail, err, conn := utils.GRPCServiceConnector(token, email.NewEmailServiceClient)
@@ -185,8 +180,8 @@ func (h *Handler) AddUsers(w http.ResponseWriter, r *http.Request) {
 				errLogs := utils.SaveLogsError(ctxWithMetadata, clientLogs, database, userId, err.Error())
 				if errLogs != nil {
 					log.Printf("Ошибка закрытия соединения: %v", err)
-					return
 				}
+				return
 			}
 		}(conn)
 	}
@@ -307,7 +302,7 @@ func callAddUsers(ctxWithMetadata context.Context, client dbadmin.DbAdminService
 	}
 
 	// Создаем контекст с тайм-аутом для запроса
-	ctxWithMetadata, cancel := context.WithTimeout(context.Background(), time.Second*10)
+	ctxWithMetadata, cancel := context.WithTimeout(ctxWithMetadata, time.Second*10)
 	defer cancel()
 
 	// Выполняем gRPC вызов RegisterCompanyq

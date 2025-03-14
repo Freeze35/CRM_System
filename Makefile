@@ -63,7 +63,7 @@ proto-logs:
 
 #Создать ключи для jwt token (при генерации публичного потребуется ввести пароль создания )
 opensslkeys:
-	openssl genpkey -algorithm RSA -out ./auth/opensslkeys/private_key.pem -aes256 -pass pass:standard_password
+	openssl genpkey -algorithm RSA -out ./auth/opensslkeys/private_key.pem -aes256 -pass pass:secret_key_standard
 	openssl rsa -in ./auth/opensslkeys/private_key.pem -pubout -out ./auth/opensslkeys/public_key.pem
 	copy .\auth\opensslkeys\private_key.pem .\nginx\opensslkeys\private_key.pem
 	copy .\auth\opensslkeys\public_key.pem .\nginx\opensslkeys\public_key.pem

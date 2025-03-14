@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/go-playground/validator/v10"
+	"github.com/gorilla/handlers"
 	"github.com/gorilla/mux"
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/codes"
@@ -26,27 +27,40 @@ func NewHandler() *Handler {
 	return &Handler{}
 }
 
-func (h *Handler) InitRouter() *mux.Router {
+func (h *Handler) InitRouter() http.Handler {
 	r := mux.NewRouter()
 
 	authRouts := r.PathPrefix("/auth").Subrouter()
 	{
 		authRouts.HandleFunc("/login", utils.RecoverMiddleware(h.Login)).Methods(http.MethodPost)
 		authRouts.HandleFunc("/register", utils.RecoverMiddleware(h.Register)).Methods(http.MethodPost)
+		authRouts.HandleFunc("/refresh", utils.RecoverMiddleware(h.RefreshToken)).Methods(http.MethodPost)
 		/*books.HandleFunc("/{id:[0-9]+}", h.getBookByID).Methods(http.MethodGet)
 		books.HandleFunc("/{id:[0-9]+}", h.deleteBook).Methods(http.MethodDelete)
 		books.HandleFunc("/{id:[0-9]+}", h.updateBook).Methods(http.MethodPut)*/
 	}
 
-	return r
+	// Обертка CORS
+	corsHandler := handlers.CORS(
+		handlers.AllowedOrigins([]string{
+			"http://localhost:3001",  // для локальной разработки
+			"https://myfrontend.com", // если фронтенд на продакшн домене
+		}), // Или укажите разрешенные домены
+		handlers.AllowedMethods([]string{"GET", "POST", "PUT", "DELETE", "OPTIONS"}),
+		handlers.AllowedHeaders([]string{"Content-Type"}),
+		handlers.AllowCredentials(),
+	)(r)
+
+	return corsHandler
 }
 
 func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 
 	//Генерация JWT токена
-	token, err := utils.JwtGenerate()
+	token, err := utils.InternalJwtGenerator()
 	if err != nil {
 		utils.CreateError(w, http.StatusInternalServerError, "Не удалось создать токен ", err)
+		return
 	}
 
 	ctx := context.Background()
@@ -79,8 +93,8 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 		errLogs := utils.SaveLogsError(ctx, clientLogs, "", "", err.Error())
 		if errLogs != nil {
 			log.Printf("Ошибка закрытия соединения: %v", err)
-			return
 		}
+		return
 	}
 
 	// Создаем валидатор
@@ -93,7 +107,6 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 		errLogs := utils.SaveLogsError(ctx, clientLogs, "", "", err.Error())
 		if errLogs != nil {
 			log.Printf("Ошибка проверки номера телефона: %v", err)
-			return
 		}
 		return
 	}
@@ -105,7 +118,6 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 		errLogs := utils.SaveLogsError(ctx, clientLogs, "", "", err.Error())
 		if errLogs != nil {
 			log.Printf("Ошибка при проверке пароля: %v", err)
-			return
 		}
 		return
 	}
@@ -131,7 +143,6 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 		errLogs := utils.SaveLogsError(ctx, clientLogs, "", "", err.Error())
 		if errLogs != nil {
 			log.Printf("Ошибка подключения: %v", err)
-			return
 		}
 		return
 	} else {
@@ -141,9 +152,9 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 				errLogs := utils.SaveLogsError(ctx, clientLogs, "", "", err.Error())
 				if errLogs != nil {
 					log.Printf("Ошибка закрытия соединени: %v", err)
-					return
 				}
 				log.Printf("Ошибка закрытия соединени")
+				return
 			}
 		}(conn)
 	}
@@ -155,8 +166,8 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 		errLogs := utils.SaveLogsError(ctx, clientLogs, "", "", err.Error())
 		if errLogs != nil {
 			log.Printf("Не корректная ошибка на сервере: %v", err)
-			return
 		}
+		return
 	}
 
 	// Если авторизация прошла успешно, выводим данные
@@ -178,18 +189,9 @@ func loginUser(w http.ResponseWriter, client dbauth.DbAuthServiceClient, req *ty
 		Password: req.Password,
 	}
 
-	// Создаем метаданные с токеном
-	md := metadata.Pairs("auth-token", token)
-
-	// Создаем контекст с метаданными
-	ctxWithMetadata := metadata.NewOutgoingContext(context.Background(), md)
-
 	// Устанавливаем тайм-аут для контекста
-	ctxWithMetadata, cancel := context.WithTimeout(ctxWithMetadata, time.Second*10)
+	ctxWithMetadata, cancel := context.WithTimeout(context.Background(), time.Second*10)
 	defer cancel()
-
-	// Заголовки из ответа
-	header := metadata.MD{}
 
 	// Устанавливаем соединение с gRPC сервером Logs
 	clientLogs, err, conn := utils.GRPCServiceConnector(token, logs.NewLogsServiceClient)
@@ -205,11 +207,14 @@ func loginUser(w http.ResponseWriter, client dbauth.DbAuthServiceClient, req *ty
 				errLogs := utils.SaveLogsError(ctxWithMetadata, clientLogs, "", "", err.Error())
 				if errLogs != nil {
 					log.Printf("Ошибка закрытия соединения: %v", err)
-					return
 				}
+				return
 			}
 		}(conn)
 	}
+
+	// Заголовки из ответа
+	header := metadata.MD{}
 
 	// Выполняем gRPC вызов LoginDB, передавая указатель для получения заголовков
 	resDB, err := client.LoginDB(ctxWithMetadata, reqLogin, grpc.Header(&header))
@@ -251,8 +256,19 @@ func loginUser(w http.ResponseWriter, client dbauth.DbAuthServiceClient, req *ty
 		return nil, http.StatusInternalServerError, fmt.Errorf("отсутствуют необходимые метаданные")
 	}
 
+	accessToken, err := utils.JwtGenerator(userID[0], "access")
+	if err != nil {
+		return nil, http.StatusInternalServerError, fmt.Errorf("не удалось сформировать access token %s", err)
+	}
+
+	refreshToken, err := utils.JwtGenerator(userID[0], "refresh")
+	if err != nil {
+		return nil, http.StatusInternalServerError, fmt.Errorf("не удалось сформировать refresh token %s", err)
+	}
+
 	// Устанавливаем HttpOnly Cookie
-	utils.AddCookie(w, "auth-token", token)
+	utils.AddCookie(w, "access_token", accessToken)
+	utils.AddCookie(w, "refresh_token", refreshToken)
 	utils.AddCookie(w, "database", database[0])
 	utils.AddCookie(w, "user-id", userID[0])
 	utils.AddCookie(w, "company-id", companyID[0])
@@ -268,9 +284,10 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
 	defer cancel()
 
-	token, err := utils.JwtGenerate()
+	token, err := utils.InternalJwtGenerator()
 	if err != nil {
 		utils.CreateError(w, http.StatusInternalServerError, "Не удалось создать токен ", err)
+		return
 	}
 
 	// Устанавливаем соединение с gRPC сервером Logs
@@ -368,7 +385,7 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Вызываем метод регистрации компании через gRPC
-	response, responseStatus, err := callRegisterCompany(w, client, &req, ctx, token, clientLogs)
+	response, responseStatus, err := callRegisterCompany(w, client, &req, ctx, clientLogs)
 	if err != nil {
 		utils.CreateError(w, responseStatus, "Ошибка регистрации компании", err)
 		errLogs := utils.SaveLogsError(ctx, clientLogs, "", "", err.Error())
@@ -389,7 +406,7 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 }
 
 func callRegisterCompany(w http.ResponseWriter, client dbauth.DbAuthServiceClient,
-	req *types.RegisterAuthRequest, ctx context.Context, token string, clientLogs logs.LogsServiceClient) (response *types.RegisterAuthResponse, responseStatus uint32, err error) {
+	req *types.RegisterAuthRequest, ctx context.Context, clientLogs logs.LogsServiceClient) (response *types.RegisterAuthResponse, responseStatus uint32, err error) {
 
 	// Создаем контекст с тайм-аутом для запроса
 	// В случае превышения порога ожидания с сервера в 10 секунд будет ошибка контекста.
@@ -454,8 +471,19 @@ func callRegisterCompany(w http.ResponseWriter, client dbauth.DbAuthServiceClien
 		return nil, http.StatusInternalServerError, fmt.Errorf("отсутствуют необходимые метаданные")
 	}
 
+	accessToken, err := utils.JwtGenerator(userID[0], "access")
+	if err != nil {
+		return nil, http.StatusInternalServerError, fmt.Errorf("не удалось сформировать access token: %s", err)
+	}
+
+	refreshToken, err := utils.JwtGenerator(userID[0], "access")
+	if err != nil {
+		return nil, http.StatusInternalServerError, fmt.Errorf("не удалось сформировать refresh token %s", err)
+	}
+
 	// Устанавливаем HttpOnly Cookie
-	utils.AddCookie(w, "auth-token", token)
+	utils.AddCookie(w, "access_token", accessToken)
+	utils.AddCookie(w, "refresh_token", refreshToken)
 	utils.AddCookie(w, "database", database[0])
 	utils.AddCookie(w, "user-id", userID[0])
 	utils.AddCookie(w, "company-id", companyID[0])
@@ -465,4 +493,58 @@ func callRegisterCompany(w http.ResponseWriter, client dbauth.DbAuthServiceClien
 	}
 	return response, http.StatusOK, nil
 
+}
+
+func (h *Handler) RefreshToken(w http.ResponseWriter, r *http.Request) {
+	ctx := context.Background()
+
+	token, err := utils.InternalJwtGenerator()
+	if err != nil {
+		utils.CreateError(w, http.StatusInternalServerError, "Не удалось создать токен", err)
+		return
+	}
+
+	// Устанавливаем соединение с gRPC сервером Logs
+	clientLogs, err, conn := utils.GRPCServiceConnector(token, logs.NewLogsServiceClient)
+	if err != nil {
+		utils.CreateError(w, http.StatusBadRequest, "Ошибка подключения", err)
+		log.Printf("Не удалось подключиться к серверу: %v", err)
+		return
+	}
+	defer func(conn *grpc.ClientConn) {
+		err := conn.Close()
+		if err != nil {
+			log.Printf("Ошибка закрытия соединения: %v", err)
+			errLogs := utils.SaveLogsError(ctx, clientLogs, "", "", err.Error())
+			if errLogs != nil {
+				log.Printf("Ошибка закрытия соединения: %v", err)
+			}
+		}
+	}(conn)
+
+	newAccessToken, err := utils.ValidateAndRefreshToken(w, r)
+	if err != nil {
+		utils.CreateError(w, http.StatusInternalServerError, "Не удалось создать токен", err)
+		errLogs := utils.SaveLogsError(ctx, clientLogs, "", "", err.Error())
+		if errLogs != nil {
+			return
+		} // Логируем ошибку
+		return
+	}
+
+	// Добавляем куку в заголовок ответа
+	utils.AddCookie(w, "access_token", newAccessToken)
+
+	// Возвращаем JSON-ответ об успешном обновлении токена
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusOK)
+	response := map[string]string{"message": "Токен успешно обновлён"}
+	err = json.NewEncoder(w).Encode(response)
+	if err != nil {
+		utils.CreateError(w, http.StatusBadRequest, "Ошибка подключения", err)
+		errLogs := utils.SaveLogsError(ctx, clientLogs, "", "", err.Error())
+		if errLogs != nil {
+		} // Логируем ошибку
+		return
+	}
 }

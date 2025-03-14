@@ -59,24 +59,26 @@ func (s AdminServiceServer) RegisterUsersInCompany(ctx context.Context, req *pbA
 	}
 
 	// Извлекаем DatabaseName из метаданных
-	database := md["database"][0]
-	if len(database) == 0 {
+	dbCheck := md["database"]
+	if len(dbCheck) == 0 {
 		errLogs := utils.SaveLogsError(ctx, clientLogs, "", "", "database не найдена в метаданных")
 		if errLogs != nil {
 			log.Printf("database не найдена в метаданных: %v", err)
 		}
 		return nil, status.Errorf(codes.Unauthenticated, "database не найдена в метаданных")
 	}
+	database := md["database"][0]
 
 	// Извлекаем UserId из метаданных
-	userId := md["user-id"][0]
-	if len(userId) == 0 {
+	uIdCheck := md["user-id"]
+	if len(uIdCheck) == 0 {
 		errLogs := utils.SaveLogsError(ctx, clientLogs, database, "", "userId не найдена в метаданных")
 		if errLogs != nil {
 			log.Printf("userId не найдена в метаданных: %v", err)
 		}
 		return nil, status.Errorf(codes.Unauthenticated, "userId не найдена в метаданных")
 	}
+	userId := md["user-id"][0]
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
 	defer cancel()

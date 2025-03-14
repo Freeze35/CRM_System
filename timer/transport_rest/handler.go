@@ -49,7 +49,7 @@ func (h *Handler) StartTimer(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Получаем cookie с именами
-	token := utils.GetFromCookies(w, r, "auth-token")
+	token := utils.GetFromCookies(w, r, "access-token")
 	if token == "" {
 		return
 	}
@@ -147,7 +147,7 @@ func (h *Handler) EndTimer(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Получаем cookie с именами
-	token := utils.GetFromCookies(w, r, "auth-token")
+	token := utils.GetFromCookies(w, r, "access-token")
 	if token == "" {
 		return
 	}
@@ -235,7 +235,7 @@ func (h *Handler) EndTimer(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) GetWorkingTimer(w http.ResponseWriter, r *http.Request) {
 
 	// Получаем cookie с именами
-	token := utils.GetFromCookies(w, r, "auth-token")
+	token := utils.GetFromCookies(w, r, "access-token")
 	if token == "" {
 		return
 	}
@@ -329,7 +329,7 @@ func (h *Handler) ChangeTimer(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Получаем cookie с именами
-	token := utils.GetFromCookies(w, r, "auth-token")
+	token := utils.GetFromCookies(w, r, "access-token")
 	if token == "" {
 		return
 	}
@@ -434,7 +434,7 @@ func (h *Handler) AddTimer(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Получаем cookie с именами
-	token := utils.GetFromCookies(w, r, "auth-token")
+	token := utils.GetFromCookies(w, r, "access-token")
 	if token == "" {
 		return
 	}

@@ -24,6 +24,7 @@ services:
     restart: always
     ports:
       - "50055:50055"
+      - "50056:50056"
     networks:
       - crm-network
 

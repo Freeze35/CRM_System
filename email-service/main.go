@@ -99,7 +99,7 @@ func main() {
 		log.Fatalf("Не удалось объявить очередь: %v", err)
 	}
 
-	token, err := utils.JwtGenerate()
+	token, err := utils.InternalJwtGenerator()
 	if err != nil {
 		err := status.Errorf(codes.Internal, "Не удалось создать токен ", err)
 		if err != nil {

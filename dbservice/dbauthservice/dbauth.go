@@ -33,15 +33,10 @@ func NewGRPCDBAuthService(mapConnect *utils.MapConnectionsDB) *AuthServiceServer
 // LoginDB обрабатывает запрос на вход пользователя в систему.
 func (s *AuthServiceServer) LoginDB(ctx context.Context, req *dbauth.LoginDBRequest) (*dbauth.LoginDBResponse, error) {
 
-	md, ok := metadata.FromIncomingContext(ctx)
-	if !ok {
-		return nil, status.Errorf(codes.Internal, "Не удалось получить метаданные из контекста auth_serivce")
-	}
-
-	// Извлекаем токен из метаданных
-	token := md["auth-token"][0] // токен передается как "auth-token"
-	if len(md["auth-token"]) == 0 {
-		return nil, status.Errorf(codes.Unauthenticated, "Токен не найден в метаданных")
+	token, err := utils.ExtractTokenFromContext(ctx)
+	if err != nil {
+		log.Printf("Не удалось извлечь токен для логирования: %v", err)
+		return nil, status.Errorf(codes.Unauthenticated, "Не удалось извлечь токен для логирования")
 	}
 
 	// Устанавливаем соединение с gRPC сервером Logs
@@ -80,6 +75,11 @@ func (s *AuthServiceServer) LoginDB(ctx context.Context, req *dbauth.LoginDBRequ
 			log.Printf("Ошибка нахождения базы данных: %v", err)
 		}
 		return nil, status.Errorf(codes.NotFound, "Ошибка нахождения базы данных: %v", err)
+	}
+
+	md, ok := metadata.FromIncomingContext(ctx)
+	if !ok {
+		return nil, status.Errorf(codes.Internal, "Не удалось получить метаданные из контекста auth_serivce")
 	}
 
 	// Создаем метаданные с Database и CompanyId
@@ -127,6 +127,7 @@ func checkUser(server *AuthServiceServer, req *dbauth.LoginDBRequest, token stri
 			log.Printf("Ошибка при получении соединения из connectionsMap: %v", err)
 		}
 		log.Printf("Ошибка при получении соединения из connectionsMap")
+		return
 	}
 
 	client, err, connRedis := utils.RedisServiceConnector(token)
@@ -300,18 +301,6 @@ func checkUser(server *AuthServiceServer, req *dbauth.LoginDBRequest, token stri
 }
 
 func (s *AuthServiceServer) RegisterCompany(ctx context.Context, req *dbauth.RegisterCompanyRequest) (*dbauth.RegisterCompanyResponse, error) {
-
-	/* Логируем получение запроса на регистрацию компании с именем из запроса.
-	log.Printf("Получен запрос на регистрацию организации: %v", req.NameCompany)*/
-
-	/*md, ok := metadata.FromIncomingContext(ctx)
-	if !ok {
-		return nil, status.Errorf(codes.Internal, "Не удалось получить метаданные из контекста")
-	}
-
-	// Извлекаем токен из метаданных
-	token := md["auth-token"] // предполагаем, что токен передается как "auth-token"
-	*/
 
 	token, err := utils.ExtractTokenFromContext(ctx)
 	if err != nil {
@@ -640,7 +629,7 @@ func registerCompany(server *AuthServiceServer, req *dbauth.RegisterCompanyReque
 // 3. Подключается к только что созданной базе данных с помощью функции GetDb.
 // 4. Выполняет миграцию для таблицы users, используя указанный путь к миграциям (MIGRATION_COMPANYDB_PATH).
 // 5. Возвращает имя созданной базы данных и nil, если все операции выполнены успешно.
-func createClientDatabase(dbName string, server *AuthServiceServer, ctx context.Context) (err error) {
+func createClientDatabase(dbName string, server *AuthServiceServer, _ context.Context) (err error) {
 
 	// Функция проверки и создания базы данных
 	err = utils.CreateInsideDB(dbName)
@@ -674,7 +663,7 @@ func createClientDatabase(dbName string, server *AuthServiceServer, ctx context.
 }
 
 // rollbackAuthDB откатывает изменения в базе данных авторизации, удаляя пользователя и компанию.
-func rollbackAuthDB(dbConn *sql.DB, companyId, authUserId string, ctx context.Context) error {
+func rollbackAuthDB(dbConn *sql.DB, companyId, authUserId string, _ context.Context) error {
 	// Начинаем откатную транзакцию.
 	tx, err := dbConn.Begin()
 	if err != nil {

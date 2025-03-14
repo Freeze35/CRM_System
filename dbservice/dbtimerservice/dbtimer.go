@@ -26,7 +26,7 @@ func NewGRPCDBTimerService(mapConnect *utils.MapConnectionsDB) *TimerServiceServ
 	}
 }
 
-func (s *TimerServiceServer) ChangeTimerDB(ctx context.Context, req *dbtimer.ChangeTimerRequestDB) (*dbtimer.ChangeTimerResponseDB, error) {
+func (s *TimerServiceServer) ChangeTimerDB(ctx context.Context, _ *dbtimer.ChangeTimerRequestDB) (*dbtimer.ChangeTimerResponseDB, error) {
 
 	md, ok := metadata.FromIncomingContext(ctx)
 	if !ok {
@@ -58,24 +58,26 @@ func (s *TimerServiceServer) ChangeTimerDB(ctx context.Context, req *dbtimer.Cha
 	}
 
 	// Извлекаем DatabaseName из метаданных
-	database := md["database"][0] // токен передается как "auth-token"
-	if len(database) == 0 {
+	dbCheck := md["database"]
+	if len(dbCheck) == 0 {
 		errLogs := utils.SaveLogsError(ctx, clientLogs, "", "", "database не найдена в метаданных")
 		if errLogs != nil {
-			log.Printf("Ошибка начала транзакции: %v", err)
+			log.Printf("database не найдена в метаданных: %v", err)
 		}
 		return nil, status.Errorf(codes.Unauthenticated, "database не найдена в метаданных")
 	}
+	database := md["database"][0]
 
-	// Извлекаем userId из метаданных
-	userId := md["user-id"][0] // токен передается как "auth-token"
-	if len(userId) == 0 {
-		errLogs := utils.SaveLogsError(ctx, clientLogs, "", "", "userId не найден в метаданных")
+	// Извлекаем UserId из метаданных
+	uIdCheck := md["user-id"]
+	if len(uIdCheck) == 0 {
+		errLogs := utils.SaveLogsError(ctx, clientLogs, database, "", "userId не найдена в метаданных")
 		if errLogs != nil {
-			log.Printf("Ошибка начала транзакции: %v", err)
+			log.Printf("userId не найдена в метаданных: %v", err)
 		}
-		return nil, status.Errorf(codes.Unauthenticated, "userId не найден в метаданных")
+		return nil, status.Errorf(codes.Unauthenticated, "userId не найдена в метаданных")
 	}
+	userId := md["user-id"][0]
 
 	// Открываем соединение с базой данных Авторизации
 	dsn := utils.DsnString(database)
@@ -177,24 +179,26 @@ func (s *TimerServiceServer) StartTimerDB(ctx context.Context, req *dbtimer.Star
 	}
 
 	// Извлекаем DatabaseName из метаданных
-	database := md["database"][0] // токен передается как "auth-token"
-	if len(database) == 0 {
-		errLogs := utils.SaveLogsError(ctx, clientLogs, "", "", err.Error())
+	dbCheck := md["database"]
+	if len(dbCheck) == 0 {
+		errLogs := utils.SaveLogsError(ctx, clientLogs, "", "", "database не найдена в метаданных")
 		if errLogs != nil {
 			log.Printf("database не найдена в метаданных: %v", err)
 		}
 		return nil, status.Errorf(codes.Unauthenticated, "database не найдена в метаданных")
 	}
+	database := md["database"][0]
 
-	// Извлекаем userId из метаданных
-	userId := md["user-id"][0] // токен передается как "auth-token"
-	if len(userId) == 0 {
-		errLogs := utils.SaveLogsError(ctx, clientLogs, "", "", err.Error())
+	// Извлекаем UserId из метаданных
+	uIdCheck := md["user-id"]
+	if len(uIdCheck) == 0 {
+		errLogs := utils.SaveLogsError(ctx, clientLogs, database, "", "userId не найдена в метаданных")
 		if errLogs != nil {
-			log.Printf("userId не найден в метаданных: %v", err)
+			log.Printf("userId не найдена в метаданных: %v", err)
 		}
-		return nil, status.Errorf(codes.Unauthenticated, "userId не найден в метаданных")
+		return nil, status.Errorf(codes.Unauthenticated, "userId не найдена в метаданных")
 	}
+	userId := md["user-id"][0]
 
 	// Открываем соединение с базой данных Авторизации
 	dsn := utils.DsnString(database)
@@ -385,24 +389,27 @@ func (s *TimerServiceServer) GetWorkingTimerDB(ctx context.Context, req *dbtimer
 	}
 
 	// Извлекаем DatabaseName из метаданных
-	database := md["database"][0] // токен передается как "auth-token"
-	if len(database) == 0 {
+	dbCheck := md["database"]
+	if len(dbCheck) == 0 {
 		errLogs := utils.SaveLogsError(ctx, clientLogs, "", "", "database не найдена в метаданных")
 		if errLogs != nil {
 			log.Printf("database не найдена в метаданных: %v", err)
 		}
 		return nil, status.Errorf(codes.Unauthenticated, "database не найдена в метаданных")
 	}
+	database := md["database"][0]
 
-	// Извлекаем userId из метаданных
-	userId := md["user-id"][0] // токен передается как "auth-token"
-	if len(userId) == 0 {
-		errLogs := utils.SaveLogsError(ctx, clientLogs, "", "", "userId не найден в метаданных")
+	// Извлекаем UserId из метаданных
+	uIdCheck := md["user-id"]
+	if len(uIdCheck) == 0 {
+		errLogs := utils.SaveLogsError(ctx, clientLogs, database, "", "userId не найдена в метаданных")
 		if errLogs != nil {
-			log.Printf("userId не найден в метаданных: %v", err)
+			log.Printf("userId не найдена в метаданных: %v", err)
 		}
-		return nil, status.Errorf(codes.Unauthenticated, "userId не найден в метаданных")
+		return nil, status.Errorf(codes.Unauthenticated, "userId не найдена в метаданных")
 	}
+	userId := md["user-id"][0]
+
 	// Открываем соединение с базой данных Авторизации
 	dsn := utils.DsnString(database)
 	// Получаем соединение с базой данных
@@ -493,24 +500,26 @@ func (s *TimerServiceServer) EndTimerDB(ctx context.Context, req *dbtimer.StartE
 	}
 
 	// Извлекаем DatabaseName из метаданных
-	database := md["database"][0] // токен передается как "auth-token"
-	if len(database) == 0 {
+	dbCheck := md["database"]
+	if len(dbCheck) == 0 {
 		errLogs := utils.SaveLogsError(ctx, clientLogs, "", "", "database не найдена в метаданных")
 		if errLogs != nil {
 			log.Printf("database не найдена в метаданных: %v", err)
 		}
 		return nil, status.Errorf(codes.Unauthenticated, "database не найдена в метаданных")
 	}
+	database := md["database"][0]
 
-	// Извлекаем userId из метаданных
-	userId := md["user-id"][0] // токен передается как "auth-token"
-	if len(userId) == 0 {
-		errLogs := utils.SaveLogsError(ctx, clientLogs, "", "", "userId не найден в метаданных")
+	// Извлекаем UserId из метаданных
+	uIdCheck := md["user-id"]
+	if len(uIdCheck) == 0 {
+		errLogs := utils.SaveLogsError(ctx, clientLogs, database, "", "userId не найдена в метаданных")
 		if errLogs != nil {
-			log.Printf("userId не найден в метаданных: %v", err)
+			log.Printf("userId не найдена в метаданных: %v", err)
 		}
-		return nil, status.Errorf(codes.Unauthenticated, "userId не найден в метаданных")
+		return nil, status.Errorf(codes.Unauthenticated, "userId не найдена в метаданных")
 	}
+	userId := md["user-id"][0]
 
 	// Открываем соединение с базой данных Авторизации
 	dsn := utils.DsnString(database)
@@ -599,24 +608,26 @@ func (s *TimerServiceServer) AddTimerDB(ctx context.Context, req *dbtimer.AddTim
 	}
 
 	// Извлекаем DatabaseName из метаданных
-	database := md["database"][0] // токен передается как "auth-token"
-	if len(database) == 0 {
+	dbCheck := md["database"]
+	if len(dbCheck) == 0 {
 		errLogs := utils.SaveLogsError(ctx, clientLogs, "", "", "database не найдена в метаданных")
 		if errLogs != nil {
 			log.Printf("database не найдена в метаданных: %v", err)
 		}
 		return nil, status.Errorf(codes.Unauthenticated, "database не найдена в метаданных")
 	}
+	database := md["database"][0]
 
-	// Извлекаем userId из метаданных
-	userId := md["user-id"][0] // токен передается как "auth-token"
-	if len(userId) == 0 {
-		errLogs := utils.SaveLogsError(ctx, clientLogs, "", "", "userId не найден в метаданных")
+	// Извлекаем UserId из метаданных
+	uIdCheck := md["user-id"]
+	if len(uIdCheck) == 0 {
+		errLogs := utils.SaveLogsError(ctx, clientLogs, database, "", "userId не найдена в метаданных")
 		if errLogs != nil {
-			log.Printf("userId не найден в метаданных: %v", err)
+			log.Printf("userId не найдена в метаданных: %v", err)
 		}
-		return nil, status.Errorf(codes.Unauthenticated, "userId не найден в метаданных")
+		return nil, status.Errorf(codes.Unauthenticated, "userId не найдена в метаданных")
 	}
+	userId := md["user-id"][0]
 
 	// Открываем соединение с базой данных Авторизации
 	dsn := utils.DsnString(database)

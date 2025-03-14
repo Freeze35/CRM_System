@@ -1,6 +1,9 @@
 package utils
 
-import "net/http"
+import (
+	"log"
+	"net/http"
+)
 
 func AddCookie(w http.ResponseWriter, name string, value string, maxTime ...int) {
 
@@ -8,7 +11,7 @@ func AddCookie(w http.ResponseWriter, name string, value string, maxTime ...int)
 	time := 3600
 
 	// Проверка на необязательный параметр time
-	if len(maxTime) > 0 {
+	if len(maxTime) != 0 && time != maxTime[0] {
 		time = maxTime[0]
 	}
 
@@ -22,4 +25,6 @@ func AddCookie(w http.ResponseWriter, name string, value string, maxTime ...int)
 		SameSite: http.SameSiteStrictMode,
 		MaxAge:   time,
 	})
+
+	log.Printf("Cookie %s added successfully", name) // Лог после установки
 }

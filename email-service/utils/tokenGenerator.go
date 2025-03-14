@@ -6,15 +6,16 @@ import (
 	"github.com/golang-jwt/jwt/v5"
 	"github.com/youmark/pkcs8"
 	"io/ioutil"
+	"os"
 	"time"
 )
 
-func JwtGenerate() (string, error) {
+func InternalJwtGenerator() (string, error) {
 	// Путь к зашифрованному закрытому ключу
 	keyFile := "./opensslkeys/private_key.pem"
 
 	// Получаем пароль из переменной окружения
-	password := "standard_password"
+	password := os.Getenv("JWT_SECRET_KEY")
 	/*password := os.Getenv("PEM_PASSWORD")
 	if password == "" {
 		return "", fmt.Errorf("PEM_PASSWORD не установлена")
@@ -49,7 +50,7 @@ func JwtGenerate() (string, error) {
 	// Установка данных в токен
 	claims := token.Claims.(jwt.MapClaims)
 	claims["foo"] = "bar"
-	claims["exp"] = time.Now().Add(1440 * time.Minute).Unix() // Время истечения токена // 1 день
+	claims["exp"] = time.Now().Add(3 * time.Minute).Unix() // Время истечения токена
 
 	// Подпись токена
 	tokenString, err := token.SignedString(privKey)
