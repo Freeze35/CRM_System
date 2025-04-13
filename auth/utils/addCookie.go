@@ -22,7 +22,7 @@ func AddCookie(w http.ResponseWriter, name string, value string, maxTime ...int)
 		Path:     "/",
 		HttpOnly: true,
 		Secure:   true, // Только через HTTPS
-		SameSite: http.SameSiteStrictMode,
+		SameSite: http.SameSiteLaxMode,
 		MaxAge:   time,
 	})
 

@@ -80,12 +80,12 @@ func ValidateAndRefreshToken(_ http.ResponseWriter, r *http.Request) (string, er
 
 	refreshToken, err := GetFromCookies(r, "refresh_token")
 	if err != nil {
-		return "", err
+		return "токен не найден", err
 	}
 
 	accessToken, err := GetFromCookies(r, "access_token")
 	if err != nil {
-		return "", err
+		return "токен не найден", err
 	}
 
 	pubKey, err := loadPublicKey()

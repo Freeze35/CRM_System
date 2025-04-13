@@ -29,6 +29,10 @@ create-console-test-client:
 test-chat-connections:
 	docker run --rm -it --network crm_system_crm-network chat-client ./chat_client --chat_id="7" --user_id="2" --db_name="KJHQdYPSiGCMhbJyaSeKLLQQZ"
 
+proto-auth:
+	protoc --go_out=./auth/proto --go-grpc_out=./auth/proto ./auth/proto/auth.proto
+	protoc --go_out=./auth/proto --go-grpc_out=./auth/proto ./auth/proto/auth.proto
+
 proto-dbauth:
 	protoc --go_out=./dbservice/proto --go-grpc_out=./dbservice/proto ./dbservice/proto/dbauth.proto
 	protoc --go_out=./auth/proto --go-grpc_out=./auth/proto ./dbservice/proto/dbauth.proto
@@ -63,7 +67,7 @@ proto-logs:
 
 #Создать ключи для jwt token (при генерации публичного потребуется ввести пароль создания )
 opensslkeys:
-	openssl genpkey -algorithm RSA -out ./auth/opensslkeys/private_key.pem -aes256 -pass pass:secret_key_standard
+	openssl genpkey -algorithm RSA -out ./auth/opensslkeys/private_key.pem -aes256 -pass pass:standard_password
 	openssl rsa -in ./auth/opensslkeys/private_key.pem -pubout -out ./auth/opensslkeys/public_key.pem
 	copy .\auth\opensslkeys\private_key.pem .\nginx\opensslkeys\private_key.pem
 	copy .\auth\opensslkeys\public_key.pem .\nginx\opensslkeys\public_key.pem

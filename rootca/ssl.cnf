@@ -30,3 +30,4 @@ DNS.10 = logs
 DNS.11 = loki
 DNS.12 = grafana
 DNS.13 = chats
+DNS.14 = localhost

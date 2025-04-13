@@ -35,6 +35,7 @@ func (h *Handler) InitRouter() http.Handler {
 		authRouts.HandleFunc("/login", utils.RecoverMiddleware(h.Login)).Methods(http.MethodPost)
 		authRouts.HandleFunc("/register", utils.RecoverMiddleware(h.Register)).Methods(http.MethodPost)
 		authRouts.HandleFunc("/refresh", utils.RecoverMiddleware(h.RefreshToken)).Methods(http.MethodPost)
+		authRouts.HandleFunc("/check", utils.RecoverMiddleware(h.CheckAuth)).Methods(http.MethodPost)
 		/*books.HandleFunc("/{id:[0-9]+}", h.getBookByID).Methods(http.MethodGet)
 		books.HandleFunc("/{id:[0-9]+}", h.deleteBook).Methods(http.MethodDelete)
 		books.HandleFunc("/{id:[0-9]+}", h.updateBook).Methods(http.MethodPut)*/
@@ -45,6 +46,7 @@ func (h *Handler) InitRouter() http.Handler {
 		handlers.AllowedOrigins([]string{
 			"http://localhost:3001",  // для локальной разработки
 			"https://myfrontend.com", // если фронтенд на продакшн домене
+			"https://localhost:3300", // если фронтенд на продакшн домене
 		}), // Или укажите разрешенные домены
 		handlers.AllowedMethods([]string{"GET", "POST", "PUT", "DELETE", "OPTIONS"}),
 		handlers.AllowedHeaders([]string{"Content-Type"}),
@@ -162,7 +164,7 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	// Проводим авторизацию пользователя с запросом к dbservice
 	response, responseStatus, err := loginUser(w, client, &req, token)
 	if err != nil {
-		utils.CreateError(w, responseStatus, "Не корректная ошибка на сервере", err)
+		utils.CreateError(w, responseStatus, "Ошибка на сервере", err)
 		errLogs := utils.SaveLogsError(ctx, clientLogs, "", "", err.Error())
 		if errLogs != nil {
 			log.Printf("Не корректная ошибка на сервере: %v", err)
@@ -239,7 +241,7 @@ func loginUser(w http.ResponseWriter, client dbauth.DbAuthServiceClient, req *ty
 			if errLogs != nil {
 				log.Printf("Ошибка подключения: %v", err)
 			}
-			return nil, http.StatusInternalServerError, fmt.Errorf("неизвестная ошибка : %s", errorMessage)
+			return nil, http.StatusInternalServerError, fmt.Errorf("%s", errorMessage)
 		}
 	}
 
@@ -266,7 +268,7 @@ func loginUser(w http.ResponseWriter, client dbauth.DbAuthServiceClient, req *ty
 		return nil, http.StatusInternalServerError, fmt.Errorf("не удалось сформировать refresh token %s", err)
 	}
 
-	// Устанавливаем HttpOnly Cookie
+	// Устанавливаем Cookie
 	utils.AddCookie(w, "access_token", accessToken)
 	utils.AddCookie(w, "refresh_token", refreshToken)
 	utils.AddCookie(w, "database", database[0])
@@ -284,14 +286,14 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
 	defer cancel()
 
-	token, err := utils.InternalJwtGenerator()
+	iternalToken, err := utils.InternalJwtGenerator()
 	if err != nil {
 		utils.CreateError(w, http.StatusInternalServerError, "Не удалось создать токен ", err)
 		return
 	}
 
 	// Устанавливаем соединение с gRPC сервером Logs
-	clientLogs, err, conn := utils.GRPCServiceConnector(token, logs.NewLogsServiceClient)
+	clientLogs, err, conn := utils.GRPCServiceConnector(iternalToken, logs.NewLogsServiceClient)
 	if err != nil {
 		log.Printf("Не удалось подключиться к серверу: %v", err)
 		utils.CreateError(w, http.StatusBadRequest, "Ошибка подключения", err)
@@ -363,7 +365,7 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Устанавливаем соединение с gRPC сервером dbService
-	client, err, conn := utils.GRPCServiceConnector(token, dbauth.NewDbAuthServiceClient)
+	client, err, conn := utils.GRPCServiceConnector(iternalToken, dbauth.NewDbAuthServiceClient)
 	if err != nil {
 		log.Printf("Не удалось подключиться к серверу: %v", err)
 		utils.CreateError(w, http.StatusBadRequest, "Ошибка подключения", err)
@@ -544,7 +546,18 @@ func (h *Handler) RefreshToken(w http.ResponseWriter, r *http.Request) {
 		utils.CreateError(w, http.StatusBadRequest, "Ошибка подключения", err)
 		errLogs := utils.SaveLogsError(ctx, clientLogs, "", "", err.Error())
 		if errLogs != nil {
+
 		} // Логируем ошибку
+		return
+	}
+}
+
+func (h *Handler) CheckAuth(w http.ResponseWriter, r *http.Request) {
+
+	response := map[string]string{"message": "Проверка пройдена"}
+	err := json.NewEncoder(w).Encode(response)
+	if err != nil {
+		log.Printf("Ошибка записи ответа при проверке")
 		return
 	}
 }

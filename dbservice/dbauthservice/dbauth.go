@@ -16,6 +16,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 )
 
@@ -64,7 +65,7 @@ func (s *AuthServiceServer) LoginDB(ctx context.Context, req *dbauth.LoginDBRequ
 		if errLogs != nil {
 			log.Printf("Внутренняя ошибка проверки пользователя: %v", err)
 		}
-		return nil, status.Errorf(codes.Internal, "Внутренняя ошибка проверки пользователя: %v", err)
+		return nil, status.Errorf(codes.Internal, "%v", err)
 	}
 
 	//Проверяем найдена ли база данных для данного пользователя
@@ -110,33 +111,30 @@ func (s *AuthServiceServer) LoginDB(ctx context.Context, req *dbauth.LoginDBRequ
 // checkUser проверяет пользователя в базе данных авторизации и возвращает имя базы данных компании.
 func checkUser(server *AuthServiceServer, req *dbauth.LoginDBRequest, token string,
 	ctx context.Context, clientLogs logs.LogsServiceClient) (dbName string, userId string, companyID string, err error) {
+	// Приведение данных к нижнему регистру
+	emailLower := strings.ToLower(req.Email)
+	phoneLower := strings.ToLower(req.Phone)
+	password := req.Password // Пароль оставляем без изменений
+
 	// Формируем строку соединения с базой данных авторизации.
 	dsn := utils.DsnString(os.Getenv("DB_AUTH_NAME"))
 	// Получаем соединение с базой данных.
 	db, err := server.connectionsMap.GetDb(dsn)
-
-	//Проверка базы данных в редис
-	//Устанавливаем соединение с gRPC сервером Redis
-
-	//token, err := utils.GetTokenFromMetadata(ctx)
-
-	//Проверка ошибки при получении
 	if err != nil {
 		errLogs := utils.SaveLogsError(ctx, clientLogs, dbName, userId, err.Error())
 		if errLogs != nil {
 			log.Printf("Ошибка при получении соединения из connectionsMap: %v", err)
 		}
 		log.Printf("Ошибка при получении соединения из connectionsMap")
-		return
-	}
-
-	client, err, connRedis := utils.RedisServiceConnector(token)
-
-	if err != nil {
-		fmt.Printf("Ошибка Подключение к redis : " + err.Error())
 		return "", "", "", err
 	}
 
+	// Устанавливаем соединение с gRPC сервером Redis
+	client, err, connRedis := utils.RedisServiceConnector(token)
+	if err != nil {
+		fmt.Printf("Ошибка подключения к Redis: " + err.Error())
+		return "", "", "", err
+	}
 	defer func(connRedis *grpc.ClientConn) {
 		err := connRedis.Close()
 		if err != nil {
@@ -147,23 +145,19 @@ func checkUser(server *AuthServiceServer, req *dbauth.LoginDBRequest, token stri
 		}
 	}(connRedis)
 
-	// Формируем запрос на регистрацию компании
+	// Формируем запрос для Redis с использованием email в нижнем регистре
 	req1 := &redis.GetRedisRequest{
-		Key: req.Email + "Login" + userId,
-		// Выполняем gRPC вызов RegisterCompany
-		//Создаём тип для Получения базы данных
-		//Получаем строку из редис и с помощью универсальной функции.
-		// Преобразуем её к переданному типу который возвращаем как ответ
+		Key: emailLower + "Login" + userId,
 	}
 
 	resRedis, err := client.Get(ctx, req1)
 	if err != nil {
-		log.Printf("Ошибка подключения базы данных: %s", err) // Логируем ошибку подключения.
+		log.Printf("Ошибка подключения базы данных: %s", err)
 		errLogs := utils.SaveLogsError(ctx, clientLogs, dbName, userId, err.Error())
 		if errLogs != nil {
 			log.Printf("Ошибка подключения базы данных: %v", err)
 		}
-		return "", "", "", err // Возвращаем пустую строку и ошибку.
+		return "", "", "", err
 	}
 
 	type DbName struct {
@@ -173,7 +167,6 @@ func checkUser(server *AuthServiceServer, req *dbauth.LoginDBRequest, token stri
 	}
 
 	if resRedis.Status == http.StatusOK {
-
 		convertedRedis, err := utils.ConvertJSONToStruct[DbName](resRedis.Message)
 		if err != nil {
 			errLogs := utils.SaveLogsError(ctx, clientLogs, dbName, userId, err.Error())
@@ -182,12 +175,10 @@ func checkUser(server *AuthServiceServer, req *dbauth.LoginDBRequest, token stri
 			}
 			return "", "", "", err
 		}
-
-		return convertedRedis.Database, convertedRedis.UserId, convertedRedis.CompanyId, nil // Возвращаем успешный ответ.
-
+		return convertedRedis.Database, convertedRedis.UserId, convertedRedis.CompanyId, nil
 	}
 
-	// SQL-запрос для проверки существования пользователя по email или телефону и паролю.
+	// SQL-запрос для проверки пользователя с данными в нижнем регистре
 	query := `
         SELECT id, company_id
         FROM authusers 
@@ -195,82 +186,68 @@ func checkUser(server *AuthServiceServer, req *dbauth.LoginDBRequest, token stri
         AND password = $3
     `
 
-	// Переменная для хранения ID компании, к которой принадлежит пользователь.
 	companyID = ""
-	//Id пользователя в авторизационной базе данных
 	authUserId := ""
 
-	// Выполняем запрос и сканируем результат в переменную companyID.
-	err = db.QueryRow(query, req.Email, req.Phone, req.Password).Scan(&authUserId, &companyID)
-
+	// Используем email и phone в нижнем регистре
+	err = db.QueryRow(query, emailLower, phoneLower, password).Scan(&authUserId, &companyID)
 	if err != nil {
 		if err == sql.ErrNoRows {
 			errLogs := utils.SaveLogsError(ctx, clientLogs, dbName, userId, err.Error())
 			if errLogs != nil {
 				log.Printf("Пользователь не найден: %v", err)
 			}
-			return "", "", "", fmt.Errorf("Пользователь не найден") // Пользователь не найден, возвращаем ошибку.
+			return "", "", "", fmt.Errorf("Пользователь не найден")
 		}
 		errLogs := utils.SaveLogsError(ctx, clientLogs, dbName, userId, err.Error())
 		if errLogs != nil {
 			log.Printf("Ошибка при выполнении запроса: %v", err)
 		}
-		return "", "", "", err // Возвращаем ошибку при выполнении запроса.
+		return "", "", "", err
 	}
 
-	// SQL-запрос для получения имени базы данных компании по ее ID.
+	// SQL-запрос для получения имени базы данных компании
 	queryCompanies := `
         SELECT dbName
         FROM companies 
         WHERE id = $1 
     `
 
-	// Выполняем запрос и сканируем результат в переменную dbName.
 	err = db.QueryRow(queryCompanies, companyID).Scan(&dbName)
-
 	if err != nil {
 		if err == sql.ErrNoRows {
 			errLogs := utils.SaveLogsError(ctx, clientLogs, dbName, userId, err.Error())
 			if errLogs != nil {
-				log.Printf("Запись о базе данных не найден: %v", err)
+				log.Printf("Запись о базе данных не найдена: %v", err)
 			}
-			return "", "", "", fmt.Errorf("запись о базе данных не найден") // Если компании не найдены, возвращаем пустую строку.
+			return "", "", "", fmt.Errorf("запись о базе данных не найдена")
 		}
-		return "", "", "", err // Возвращаем ошибку при выполнении запроса.
+		return "", "", "", err
 	}
 
-	// Работа с базой данных компании.
-
-	dsnC := utils.DsnString(dbName)                         // Формируем строку подключения к базе данных компании.
-	dbConnCompany, err := server.connectionsMap.GetDb(dsnC) // Получаем соединение с базой данных компании.
-
+	// Работа с базой данных компании
+	dsnC := utils.DsnString(dbName)
+	dbConnCompany, err := server.connectionsMap.GetDb(dsnC)
 	if dbConnCompany == nil {
 		log.Println("Ошибка: соединение с базой данных компании не инициализировано")
 		errLogs := utils.SaveLogsError(ctx, clientLogs, dbName, userId, "Ошибка: соединение с базой данных компании не инициализировано")
 		if errLogs != nil {
 			log.Printf("Ошибка: соединение с базой данных компании не инициализировано: %v", err)
 		}
-		return "", "", "", fmt.Errorf("соединение с базой данных компании не инициализировано") // Возвращаем ошибку, если соединение не удалось.
+		return "", "", "", fmt.Errorf("соединение с базой данных компании не инициализировано")
 	}
 
-	// Вставляем нового пользователя в таблицу users.
-	/*err = txc.QueryRow(
-		"SELECT id FROM users WHERE authId = "
-		"INSERT INTO users (roles, companyId, rightsId, authId) VALUES ($1, $2, $3, $4) RETURNING id",
-		role, companyId, roleID, authUserId,
-	).Scan(&newAdminId)*/
-
-	// Выполняем запрос и сканируем результат в переменную dbName.
+	// Получаем userId из таблицы users
 	err = dbConnCompany.QueryRow("SELECT id FROM users WHERE authId = $1", authUserId).Scan(&userId)
-
 	if err != nil {
 		errLogs := utils.SaveLogsError(ctx, clientLogs, dbName, userId, err.Error())
 		if errLogs != nil {
 			log.Printf("Не удалось найти пользователя в базе данных компании: %v", err)
 		}
-		return "", "", "", fmt.Errorf("не удалось найти пользователя в базе данных компании: %v", err) // Возвращаем ошибку, если вставка не удалась.
+		return "", "", "", fmt.Errorf("не удалось найти пользователя в базе данных компании: %v", err)
 	}
 
+	// Сохраняем данные в Redis
 	toJsonType := &DbName{
 		Database:  dbName,
 		UserId:    userId,
@@ -278,26 +255,29 @@ func checkUser(server *AuthServiceServer, req *dbauth.LoginDBRequest, token stri
 	}
 
 	toJsonRedis, err := utils.ConvertStructToJSON(toJsonType)
+	if err != nil {
+		errLogs := utils.SaveLogsError(ctx, clientLogs, dbName, userId, err.Error())
+		if errLogs != nil {
+			log.Printf("Ошибка преобразования в JSON: %v", err)
+		}
+	}
 
-	//Создаём ключ, значение, и время истечения для сохранения готового запроса
 	saveRequest := &redis.SaveRedisRequest{
-		Key:        req.Email + "Login" + userId,
+		Key:        emailLower + "Login" + userId, // Используем email в нижнем регистре
 		Value:      toJsonRedis,
 		Expiration: int64((time.Minute * 10).Seconds()),
 	}
 
-	// Выполняем gRPC вызов RegisterCompany
 	_, err = client.Save(ctx, saveRequest)
-
 	if err != nil {
 		errLogs := utils.SaveLogsError(ctx, clientLogs, dbName, userId, err.Error())
 		if errLogs != nil {
-			log.Printf("Ошибка выполнения gRPC вызова RegisterCompany: %v", err)
+			log.Printf("Ошибка выполнения gRPC вызова Save: %v", err)
 		}
-		fmt.Printf("Ошибка выполнения gRPC вызова RegisterCompany")
+		fmt.Printf("Ошибка выполнения gRPC вызова Save")
 	}
 
-	return dbName, userId, companyID, nil // Возвращаем имя базы данных и nil в качестве ошибки, если все прошло успешно.
+	return dbName, userId, companyID, nil
 }
 
 func (s *AuthServiceServer) RegisterCompany(ctx context.Context, req *dbauth.RegisterCompanyRequest) (*dbauth.RegisterCompanyResponse, error) {
@@ -336,9 +316,9 @@ func (s *AuthServiceServer) RegisterCompany(ctx context.Context, req *dbauth.Reg
 		// Если произошла ошибка, формируем ответ с сообщением об ошибке.
 		errLogs := utils.SaveLogsError(ctx, clientLogs, "", "", err.Error())
 		if errLogs != nil {
-			log.Printf("Ошибка вызова регистрации компании: %v", errLogs)
+			log.Printf("%v", errLogs)
 		}
-		return nil, status.Errorf(statusRegister, fmt.Sprintf("Ошибка вызова регистрации компании: %v", err))
+		return nil, status.Errorf(statusRegister, fmt.Sprintf("%v", err))
 	}
 
 	// Создаем метаданные с Database и CompanyId
@@ -353,7 +333,7 @@ func (s *AuthServiceServer) RegisterCompany(ctx context.Context, req *dbauth.Reg
 	if err != nil {
 		errLogs := utils.SaveLogsError(ctx, clientLogs, dbName, userId, err.Error())
 		if errLogs != nil {
-			log.Printf("Ошибка вызова регистрации компании: %v", err)
+			log.Printf("%v", err)
 		}
 		return nil, status.Errorf(codes.Internal, fmt.Sprintf("Ошибка установки метаданных: %v", err))
 	}
@@ -397,15 +377,21 @@ func (s *AuthServiceServer) RegisterCompany(ctx context.Context, req *dbauth.Reg
 func registerCompany(server *AuthServiceServer, req *dbauth.RegisterCompanyRequest, token string) (
 	nameDB string, userId string, companyId string, status codes.Code, err error) {
 
+	// Приведение данных из запроса к нижнему регистру
+	nameCompanyLower := strings.ToLower(req.NameCompany)
+	addressLower := strings.ToLower(req.Address)
+	emailLower := strings.ToLower(req.Email)
+	phoneLower := strings.ToLower(req.Phone)
+	password := req.Password // Пароль оставляем без изменений, если не требуется
+
 	// В случае превышения порога ожидания с сервера в 10 секунд будет ошибка контекста.
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)
 	defer cancel()
 
-	//Проверка базы данных в редис
-	//Соединение с gRPC сервером Redis
+	// Проверка базы данных в Redis
 	client, err, connRedis := utils.RedisServiceConnector(token)
 	if err != nil {
-		fmt.Printf("Ошибка Подключение к redis : " + err.Error())
+		fmt.Printf("Ошибка подключения к Redis: " + err.Error())
 		return "", "", "", codes.Internal, err
 	} else {
 		defer func(connRedis *grpc.ClientConn) {
@@ -418,10 +404,10 @@ func registerCompany(server *AuthServiceServer, req *dbauth.RegisterCompanyReque
 
 	// Формируем запрос на регистрацию компании
 	req1 := &redis.GetRedisRequest{
-		Key: req.NameCompany + "Register",
+		Key: nameCompanyLower + "Register", // Используем нижний регистр для ключа
 	}
 
-	// Выполняем gRPC вызов RegisterCompany
+	// Выполняем gRPC вызов Get
 	resRedis, err := client.Get(ctx, req1)
 
 	type dbRedisType struct {
@@ -432,183 +418,158 @@ func registerCompany(server *AuthServiceServer, req *dbauth.RegisterCompanyReque
 	}
 
 	if resRedis.Status == http.StatusOK {
-		//Получаем строку из редиса и с помощью универсальной функции.
-		// Преобразуем её к переданному типу который возвращаем как ответ
 		convertedRedis, err := utils.ConvertJSONToStruct[dbRedisType](resRedis.Message)
 		if err != nil {
 			return "", "", "", codes.Internal, err
 		}
-
-		return convertedRedis.Database, convertedRedis.UserId, convertedRedis.CompanyId, codes.OK, nil // Возвращаем успешный ответ.
-
+		return convertedRedis.Database, convertedRedis.UserId, convertedRedis.CompanyId, codes.OK, nil
 	} else {
-
-		// Получаем имя базы данных авторизации из переменных окружения.
 		authDBName := os.Getenv("DB_AUTH_NAME")
-
-		// Создаём рандомное имя для базы данных компании
 		newDbName := utils.RandomDBName(25)
-
-		// Формируем строку подключения к базе данных авторизации.
 		dsn := utils.DsnString(authDBName)
 
-		// Получаем соединение с базой данных авторизации.
 		dbConn, err := server.connectionsMap.GetDb(dsn)
 		if err != nil {
-
-			return "", "", "", codes.Internal, err // Возвращаем ошибку, если соединение не удалось.
+			return "", "", "", codes.Internal, err
 		}
 
-		// Логируем состояние соединения с базой данных авторизации.
 		if dbConn == nil {
 			log.Println("Ошибка: соединение с базой данных авторизации не инициализировано")
 			return "", "", "", codes.Internal, fmt.Errorf("соединение с базой данных авторизации не инициализировано")
 		}
 
-		// Начинаем транзакцию для базы данных авторизации.
 		tx, err := dbConn.Begin()
 		if err != nil {
-			return "", "", "", codes.Internal, fmt.Errorf("не удалось начать транзакцию: %v", err) // Возвращаем ошибку, если не удалось начать транзакцию.
+			return "", "", "", codes.Internal, fmt.Errorf("не удалось начать транзакцию: %v", err)
 		}
 
-		defer func() { // Отложенная функция для отката транзакции в случае ошибки.
+		defer func() {
 			if err != nil {
 				_ = tx.Rollback()
-				log.Printf("Транзакция откатана (auth DB) из-за ошибки: %v", err) // Логируем откат.
+				log.Printf("Транзакция откатана (auth DB) из-за ошибки: %v", err)
 			}
 		}()
 
-		// Проверяем, существует ли уже компания с указанным именем и адресом.
+		// Проверяем, существует ли компания с именем и адресом в нижнем регистре
 		query := "SELECT id FROM companies WHERE name = $1 AND address = $2"
-		err = tx.QueryRow(query, req.NameCompany, req.Address).Scan(&companyId)
+		err = tx.QueryRow(query, nameCompanyLower, addressLower).Scan(&companyId)
 		if err != nil {
-			if err == sql.ErrNoRows { // Если компания не найдена, продолжаем вставку.
-				// Вставляем новую компанию и получаем её ID.
+			if err == sql.ErrNoRows {
+				// Вставляем новую компанию с данными в нижнем регистре
 				err = tx.QueryRow(
 					"INSERT INTO companies (name, address, dbname) VALUES ($1, $2, $3) RETURNING id",
-					req.NameCompany, req.Address, newDbName,
+					nameCompanyLower, addressLower, newDbName,
 				).Scan(&companyId)
 				if err != nil {
-					return "", "", "", codes.Internal, fmt.Errorf("Не удалось создать компанию: %v", err) // Возвращаем ошибку, если вставка не удалась.
+					return "", "", "", codes.Internal, fmt.Errorf("не удалось создать компанию: %v", err)
 				}
 			} else {
-				return "", "", "", codes.InvalidArgument, fmt.Errorf("Ошибка при проверке существования компании: %v", err) // Возвращаем ошибку, если произошла другая ошибка.
+				return "", "", "", codes.InvalidArgument, fmt.Errorf("ошибка при проверке существования компании: %v", err)
 			}
 		} else {
-			return "", "", "", codes.AlreadyExists, fmt.Errorf("Компания с таким именем и адресом уже существует: %s", req.NameCompany) // Возвращаем ошибку, если компания уже существует.
+			return "", "", "", codes.AlreadyExists, fmt.Errorf("компания с таким именем и адресом уже существует: %s", nameCompanyLower)
 		}
 
-		var authUserId string // Переменная для хранения ID пользователя.
-
-		// Вставляем нового пользователя в таблицу authusers и получаем его ID.
+		var authUserId string
+		// Вставляем пользователя с данными в нижнем регистре
 		err = tx.QueryRow(
 			"INSERT INTO authusers (email, phone, password, company_id) VALUES ($1, $2, $3, $4) RETURNING id",
-			req.Email, req.Phone, req.Password, companyId,
+			emailLower, phoneLower, password, companyId,
 		).Scan(&authUserId)
 		if err != nil {
-			return "", "", "", codes.Internal, fmt.Errorf("Не удалось создать пользователя: %v", err) // Возвращаем ошибку, если вставка не удалась.
+			if strings.Contains(err.Error(), "authusers_phone_key") {
+				return "", "", "", codes.AlreadyExists, fmt.Errorf("дубликат номера телефона: %v", err)
+			}
+			if strings.Contains(err.Error(), "authusers_email_key") {
+				return "", "", "", codes.AlreadyExists, fmt.Errorf("дубликат почты: %v", err)
+			}
+			return "", "", "", codes.Internal, fmt.Errorf("не удалось создать пользователя: %v", err)
 		}
 
-		err = tx.Commit() // Фиксируем транзакцию для базы данных авторизации.
+		err = tx.Commit()
 		if err != nil {
-			return "", "", "", codes.Internal, fmt.Errorf("Не удалось зафиксировать транзакцию auth DB: %v", err) // Возвращаем ошибку, если фиксация не удалась.
+			return "", "", "", codes.Internal, fmt.Errorf("не удалось зафиксировать транзакцию auth DB: %v", err)
 		}
 
-		// Создаем базу данных для компании.
 		err = createClientDatabase(newDbName, server, ctx)
 		if err != nil {
-			return "", "", "", codes.Internal, err // Возвращаем ошибку, если создание базы данных не удалось.
+			return "", "", "", codes.Internal, err
 		}
 
-		// Работа с базой данных компании.
-		dsnC := utils.DsnString(newDbName)                      // Формируем строку подключения к базе данных компании.
-		dbConnCompany, err := server.connectionsMap.GetDb(dsnC) // Получаем соединение с базой данных компании.
-
+		dsnC := utils.DsnString(newDbName)
+		dbConnCompany, err := server.connectionsMap.GetDb(dsnC)
 		if dbConnCompany == nil {
 			log.Println("Ошибка: соединение с базой данных компании не инициализировано")
-			return "", "", "", codes.Internal, fmt.Errorf("соединение с базой данных компании не инициализировано") // Возвращаем ошибку, если соединение не удалось.
+			return "", "", "", codes.Internal, fmt.Errorf("соединение с базой данных компании не инициализировано")
 		}
 
-		txc, err := dbConnCompany.Begin() // Начинаем транзакцию для базы данных компании.
+		txc, err := dbConnCompany.Begin()
 		if err != nil {
-			return "", "", "", codes.Internal, fmt.Errorf("не удалось начать транзакцию для компании: %v", err) // Возвращаем ошибку, если не удалось начать транзакцию.
+			return "", "", "", codes.Internal, fmt.Errorf("не удалось начать транзакцию для компании: %v", err)
 		}
 
-		defer func() { // Отложенная функция для отката транзакции в случае ошибки.
+		defer func() {
 			if err != nil {
-				_ = txc.Rollback()                                                   // Откатываем транзакцию.
-				log.Printf("Транзакция откатана (company DB) из-за ошибки: %v", err) // Логируем откат.
-				// Откат действий в первой базе данных.
+				_ = txc.Rollback()
+				log.Printf("Транзакция откатана (company DB) из-за ошибки: %v", err)
 				err = rollbackAuthDB(dbConn, companyId, authUserId, ctx)
 				log.Printf("Не удалось откатить транзакцию: %v", err)
-				//return "", "", "", codes.Internal, fmt.Errorf("не удалось откатить транзакцию: %v", err)
 			}
 		}()
 
-		role := os.Getenv("FIRST_ROLE") // Получаем роль для нового пользователя.
-
-		var roleID int // Переменная для хранения ID роли.
-
-		// Вставляем новую роль в таблицу rights и получаем её ID.
+		role := os.Getenv("FIRST_ROLE")
+		var roleID int
 		err = txc.QueryRow("INSERT INTO rights (roles) VALUES ($1) RETURNING id", role).Scan(&roleID)
 		if err != nil {
-			return "", "", "", codes.Unimplemented, fmt.Errorf("не удалось добавить название прав: %v", err) // Возвращаем ошибку, если вставка не удалась.
+			return "", "", "", codes.Unimplemented, fmt.Errorf("не удалось добавить название прав: %v", err)
 		}
 
 		var newUserId string
-
-		// Вставляем нового пользователя в таблицу users.
 		err = txc.QueryRow(
 			"INSERT INTO users (rightsId, authId) VALUES ($1, $2) RETURNING id",
 			roleID, authUserId,
 		).Scan(&newUserId)
 		if err != nil {
-			return "", "", "", codes.Unimplemented, fmt.Errorf("не удалось добавить пользователя: %v", err) // Возвращаем ошибку, если вставка не удалась.
+			return "", "", "", codes.Unimplemented, fmt.Errorf("не удалось добавить пользователя: %v", err)
 		}
 
-		// Вставляем доступные действия для новой роли.
 		_, err = txc.Exec(
 			"INSERT INTO availableactions (roleId, createTasks, createChats, addWorkers) VALUES ($1, $2, $3, $4)",
 			roleID, true, true, true,
 		)
 		if err != nil {
-			return "", "", "", codes.Unimplemented, fmt.Errorf("не удалось добавить доступные действия для роли: %v", err) // Возвращаем ошибку, если вставка не удалась.
+			return "", "", "", codes.Unimplemented, fmt.Errorf("не удалось добавить доступные действия для роли: %v", err)
 		}
 
-		err = txc.Commit() // Фиксируем транзакцию для базы данных компании.
+		err = txc.Commit()
 		if err != nil {
-			return "", "", "", codes.Unimplemented, fmt.Errorf("не удалось зафиксировать транзакцию компании: %v", err) // Возвращаем ошибку, если фиксация не удалась.
+			return "", "", "", codes.Unimplemented, fmt.Errorf("не удалось зафиксировать транзакцию компании: %v", err)
 		}
 
 		toJsonType := &dbRedisType{
-			Message:   req.NameCompany,
+			Message:   nameCompanyLower, // Используем нижний регистр
 			Database:  newDbName,
 			UserId:    newUserId,
 			CompanyId: companyId,
 		}
 
 		toJsonRedis, err := utils.ConvertStructToJSON(toJsonType)
-
-		//Проверка на ошибку в преобразовании к JSON строке
 		if err != nil {
 			fmt.Printf(err.Error())
 		}
 
-		//Создаём ключ, значение, и время истечения для сохранения готового запроса
 		saveRequest := &redis.SaveRedisRequest{
-			Key:        req.NameCompany + "Register" + newUserId,
+			Key:        nameCompanyLower + "Register" + newUserId, // Используем нижний регистр для ключа
 			Value:      toJsonRedis,
 			Expiration: int64((time.Minute * 10).Seconds()),
 		}
 
-		// Выполняем gRPC вызов Сохранения в REdis
 		_, err = client.Save(ctx, saveRequest)
-
 		if err != nil {
 			fmt.Printf(err.Error())
 		}
 
-		return newDbName, newUserId, companyId, codes.OK, nil // Возвращаем имя базы данных, nil и код состояния 200 OK, если все операции выполнены успешно.
+		return newDbName, newUserId, companyId, codes.OK, nil
 	}
 }
 

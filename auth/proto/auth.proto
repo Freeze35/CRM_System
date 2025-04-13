@@ -21,10 +21,6 @@ message RegisterAuthRequest {
 
 message RegisterAuthResponse {
   string message = 1;
-  string database = 2;
-  string companyId = 3;
-  string token = 4;
-  uint32 status = 5;
 }
 
 message LoginAuthRequest {
@@ -35,8 +31,4 @@ message LoginAuthRequest {
 
 message LoginAuthResponse {
   string message = 1;
-  string database = 2;
-  string companyId = 3;
-  string token = 4;
-  uint32 status = 5;
 }
