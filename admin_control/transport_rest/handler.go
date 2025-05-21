@@ -101,6 +101,7 @@ func (h *Handler) AddUsers(w http.ResponseWriter, r *http.Request) {
 		if errLogs != nil {
 			log.Printf("Ошибка при декодировании данных: %v", err)
 		}
+
 		return
 	}
 
@@ -150,7 +151,7 @@ func (h *Handler) AddUsers(w http.ResponseWriter, r *http.Request) {
 	}
 
 	//Вызываем регистрацию пользователя на dbservice
-	response, err := callAddUsers(ctxWithMetadata, client, &reqUsers, clientLogs, database, userId)
+	response, err := CallAddUsers(ctxWithMetadata, client, &reqUsers, clientLogs, database, userId)
 	if err != nil {
 		utils.CreateError(w, http.StatusInternalServerError, "Не корректная ошибка на сервере.", err)
 		errLogs := utils.SaveLogsError(ctxWithMetadata, clientLogs, database, userId, err.Error())
@@ -212,7 +213,7 @@ func (h *Handler) AddUsers(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Отправляем письмо
-		_, err := sendToEmailUser(clientEmail, &mailRequest)
+		_, err := SendToEmailUser(clientEmail, &mailRequest)
 		if err != nil {
 			failureCount++
 			failureMessages = append(failureMessages, "Failed to send email to "+user.Email+": "+err.Error())
@@ -260,7 +261,7 @@ func (h *Handler) AddUsers(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func transformUsersConcurrently(users []*types.User) []*dbadmin.User {
+func TransformUsersConcurrently(users []*types.User) []*dbadmin.User {
 	// Канал для передачи преобразованных пользователей
 	resultChan := make(chan *dbadmin.User, len(users))
 
@@ -293,12 +294,12 @@ func transformUsersConcurrently(users []*types.User) []*dbadmin.User {
 	return transformedUsers
 }
 
-func callAddUsers(ctxWithMetadata context.Context, client dbadmin.DbAdminServiceClient, req *types.RegisterUsersRequest,
+func CallAddUsers(ctxWithMetadata context.Context, client dbadmin.DbAdminServiceClient, req *types.RegisterUsersRequest,
 	clientLogs logs.LogsServiceClient, database string, userId string) (response *dbadmin.RegisterUsersResponse, err error) {
 
 	reqRegisterUsers := &dbadmin.RegisterUsersRequest{
 		CompanyId: req.CompanyId,
-		Users:     transformUsersConcurrently(req.Users),
+		Users:     TransformUsersConcurrently(req.Users),
 	}
 
 	// Создаем контекст с тайм-аутом для запроса
@@ -329,7 +330,7 @@ func callAddUsers(ctxWithMetadata context.Context, client dbadmin.DbAdminService
 
 }
 
-func sendToEmailUser(client email.EmailServiceClient, req *types.SendEmailRequest) (response *email.SendEmailResponse, err error) {
+func SendToEmailUser(client email.EmailServiceClient, req *types.SendEmailRequest) (response *email.SendEmailResponse, err error) {
 	// Выполняем gRPC вызов RegisterCompany
 
 	ctx, cancel := context.WithTimeout(context.Background(), time.Second*10)

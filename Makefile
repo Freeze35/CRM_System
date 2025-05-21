@@ -129,3 +129,9 @@ opensslkeys:
 	openssl x509 -req -in ./redis/sslkeys/server.csr -CA ./rootca/ca.crt -CAkey ./rootca/ca.key -CAcreateserial -out ./redis/sslkeys/server.pem -days 3650 -sha256 -extfile ./rootca/ssl.cnf -extensions req_ext
 	openssl x509 -req -in ./logs/sslkeys/server.csr -CA ./rootca/ca.crt -CAkey ./rootca/ca.key -CAcreateserial -out ./logs/sslkeys/server.pem -days 3650 -sha256 -extfile ./rootca/ssl.cnf -extensions req_ext
 	openssl x509 -req -in ./loki/sslkeys/server.csr -CA ./rootca/ca.crt -CAkey ./rootca/ca.key -CAcreateserial -out ./loki/sslkeys/server.pem -days 3650 -sha256 -extfile ./rootca/ssl.cnf -extensions req_ext
+
+# Создание мок данных. Только из внутренней директории cd admin_control
+mock_gen_admin_control:
+	mockgen -source ./proto/dbadmin/dbadmin_grpc.pb.go -destination ./tests/mocks/mock_dbadmin.go -package mocks
+	mockgen -source ./proto/email-service/email_grpc.pb.go -destination ./tests/mocks/mock_email.go -package mocks
+	mockgen -source ./proto/logs/logs_grpc.pb.go -destination ./tests/mocks/mock_logs.go -package mocks
