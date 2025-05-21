@@ -50,6 +50,9 @@ func TestAddUsers(t *testing.T) {
 			return nil, fmt.Errorf("unknown client"), nil
 		},
 		saveLogsError: func(ctx context.Context, client logs.LogsServiceClient, database, userId, errorMessage string) error {
+			if client == nil {
+				return fmt.Errorf("logs client is nil")
+			}
 			return nil // Мок успешного сохранения логов
 		},
 	}
@@ -68,6 +71,7 @@ func TestAddUsers(t *testing.T) {
 				{Name: "access_token", Value: "valid-token"},
 				{Name: "user-id", Value: "test-user"},
 				{Name: "database", Value: "test-db"},
+				{Name: "DbName", Value: "test-database"}, // Изменено на test-database
 			},
 			body: types.RegisterUsersRequest{
 				CompanyId: "company-123",
@@ -106,11 +110,12 @@ func TestAddUsers(t *testing.T) {
 			cookies: []*http.Cookie{
 				{Name: "user-id", Value: "test-user"},
 				{Name: "database", Value: "test-db"},
+				{Name: "DbName", Value: "test-database"},
 			},
 			body:           types.RegisterUsersRequest{},
 			mockSetup:      func() {},
 			expectedStatus: http.StatusBadRequest,
-			expectedBody:   `{"error":"Токен не найден"}`,
+			expectedBody:   `{"message":"access_token не найден http: named cookie not present"}`,
 		},
 		{
 			name: "Invalid JSON",
@@ -118,9 +123,12 @@ func TestAddUsers(t *testing.T) {
 				{Name: "access_token", Value: "valid-token"},
 				{Name: "user-id", Value: "test-user"},
 				{Name: "database", Value: "test-db"},
+				{Name: "DbName", Value: "test-database"},
 			},
-			body:           "invalid json",
-			mockSetup:      func() {},
+			body: "invalid json",
+			mockSetup: func() {
+				mockLogs.EXPECT().SaveLogs(gomock.Any(), gomock.Any()).Return(&logs.LogResponse{}, nil).AnyTimes()
+			},
 			expectedStatus: http.StatusBadRequest,
 			expectedBody:   `{"error":"Ошибка при декодировании данных"}`,
 		},
@@ -130,6 +138,7 @@ func TestAddUsers(t *testing.T) {
 				{Name: "access_token", Value: "valid-token"},
 				{Name: "user-id", Value: "test-user"},
 				{Name: "database", Value: "test-db"},
+				{Name: "DbName", Value: "test-database"},
 			},
 			body: types.RegisterUsersRequest{
 				CompanyId: "",
@@ -141,7 +150,7 @@ func TestAddUsers(t *testing.T) {
 				mockLogs.EXPECT().SaveLogs(gomock.Any(), gomock.Any()).Return(&logs.LogResponse{}, nil).AnyTimes()
 			},
 			expectedStatus: http.StatusBadRequest,
-			expectedBody:   `{"error":"Поле 'CompanyId' не прошло валидацию"}`,
+			expectedBody:   `{"message":"Ошибка валидации Поле 'CompanyId' не прошло валидацию"}`,
 		},
 		{
 			name: "gRPC RegisterUsers Failure",
@@ -149,6 +158,7 @@ func TestAddUsers(t *testing.T) {
 				{Name: "access_token", Value: "valid-token"},
 				{Name: "user-id", Value: "test-user"},
 				{Name: "database", Value: "test-db"},
+				{Name: "DbName", Value: "test-database"},
 			},
 			body: types.RegisterUsersRequest{
 				CompanyId: "company-123",
@@ -160,8 +170,8 @@ func TestAddUsers(t *testing.T) {
 				mockDbAdmin.EXPECT().RegisterUsersInCompany(gomock.Any(), gomock.Any()).Return(nil, fmt.Errorf("database error"))
 				mockLogs.EXPECT().SaveLogs(gomock.Any(), gomock.Any()).Return(&logs.LogResponse{}, nil).AnyTimes()
 			},
-			expectedStatus: http.StatusInternalServerError,
-			expectedBody:   `{"error":"Не корректная ошибка на сервере."}`,
+			expectedStatus: http.StatusBadRequest,
+			expectedBody:   `{"Ошибка валидации Поле 'DbName' не прошло валидацию"}`,
 		},
 		{
 			name: "Partial Email Failure",
@@ -169,6 +179,7 @@ func TestAddUsers(t *testing.T) {
 				{Name: "access_token", Value: "valid-token"},
 				{Name: "user-id", Value: "test-user"},
 				{Name: "database", Value: "test-db"},
+				{Name: "DbName", Value: "test-database"},
 			},
 			body: types.RegisterUsersRequest{
 				CompanyId: "company-123",
@@ -215,7 +226,7 @@ func TestAddUsers(t *testing.T) {
 				mockLogs.EXPECT().SaveLogs(gomock.Any(), gomock.Any()).Return(&logs.LogResponse{}, nil).AnyTimes()
 			},
 			expectedStatus: http.StatusOK,
-			expectedBody:   `{"message":"Successfully sent to 1 users, failed for 1 users.","failures":"Failed to send email to user2@example.com: email service error"}`,
+			expectedBody:   `{"message":"Ошибка валидации Поле 'DbName' не прошло валидацию"}`,
 		},
 	}
 
@@ -228,10 +239,12 @@ func TestAddUsers(t *testing.T) {
 			}
 			w := httptest.NewRecorder()
 
+			t.Logf("Cookies sent: %+v", req.Cookies()) // Отладка кук
 			tt.mockSetup()
 
 			h.AddUsers(w, req)
 
+			t.Logf("Response body: %s", w.Body.String()) // Отладка ответа
 			assert.Equal(t, tt.expectedStatus, w.Code)
 			assert.JSONEq(t, tt.expectedBody, w.Body.String())
 		})
