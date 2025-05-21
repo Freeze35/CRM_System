@@ -5,10 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"log"
 	"net/http"
 	"net/http/httptest"
-	"strings"
 	"testing"
 
 	"crmSystem/proto/dbadmin"
@@ -17,13 +15,9 @@ import (
 	"crmSystem/tests/mocks"
 	"crmSystem/transport_rest"
 	"crmSystem/transport_rest/types"
-	"crmSystem/utils"
-
-	"github.com/go-playground/validator/v10"
 	"github.com/golang/mock/gomock"
 	"github.com/stretchr/testify/assert"
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/metadata"
 )
 
 // testHandler — обертка для transport_rest.Handler с замоканными зависимостями
@@ -31,162 +25,6 @@ type testHandler struct {
 	*transport_rest.Handler
 	grpcServiceConnector func(token string, client interface{}) (interface{}, error, *grpc.ClientConn)
 	saveLogsError        func(ctx context.Context, client logs.LogsServiceClient, database, userId, errorMessage string) error
-}
-
-// AddUsers — переопределенный метод для использования замоканных зависимостей
-func (h *testHandler) AddUsers(w http.ResponseWriter, r *http.Request) {
-	token := utils.GetFromCookies(w, r, "access_token")
-	if token == "" {
-		utils.CreateError(w, http.StatusBadRequest, "Токен не найден", fmt.Errorf(""))
-		return
-	}
-
-	userId := utils.GetFromCookies(w, r, "user-id")
-	if userId == "" {
-		utils.CreateError(w, http.StatusBadRequest, "user-id не найден", fmt.Errorf(""))
-		return
-	}
-
-	database := utils.GetFromCookies(w, r, "database")
-	if database == "" {
-		utils.CreateError(w, http.StatusBadRequest, "database не найдена", fmt.Errorf(""))
-		return
-	}
-
-	md := metadata.Pairs("user-id", userId, "database", database)
-	ctxWithMetadata := metadata.NewOutgoingContext(context.Background(), md)
-
-	clientLogs, err, conn := h.grpcServiceConnector(token, logs.NewLogsServiceClient)
-	if err != nil {
-		log.Printf("Не удалось подключиться к серверу: %v", err)
-		utils.CreateError(w, http.StatusBadRequest, "Ошибка подключения", err)
-		if clientLogs != nil {
-			errLogs := h.saveLogsError(ctxWithMetadata, clientLogs.(logs.LogsServiceClient), database, userId, err.Error())
-			if errLogs != nil {
-				log.Printf("Ошибка логирования: %v", errLogs)
-			}
-		}
-		return
-	}
-	defer conn.Close()
-
-	var reqUsers types.RegisterUsersRequest
-	decoder := json.NewDecoder(r.Body)
-	if err := decoder.Decode(&reqUsers); err != nil {
-		utils.CreateError(w, http.StatusBadRequest, "Ошибка при декодировании данных", err)
-		errLogs := h.saveLogsError(ctxWithMetadata, clientLogs.(logs.LogsServiceClient), database, userId, err.Error())
-		if errLogs != nil {
-			log.Printf("Ошибка логирования: %v", errLogs)
-		}
-		return
-	}
-
-	validate := validator.New()
-	if err := validate.Struct(reqUsers); err != nil {
-		validationErrors := err.(validator.ValidationErrors)
-		for _, e := range validationErrors {
-			errorMessage := fmt.Sprintf("Поле '%s' не прошло валидацию", e.Field())
-			utils.CreateError(w, http.StatusBadRequest, "Ошибка валидации", fmt.Errorf(errorMessage))
-			errLogs := h.saveLogsError(ctxWithMetadata, clientLogs.(logs.LogsServiceClient), database, userId, err.Error())
-			if errLogs != nil {
-				log.Printf("Ошибка логирования: %v", errLogs)
-			}
-			return
-		}
-	}
-
-	client, err, conn := h.grpcServiceConnector(token, dbadmin.NewDbAdminServiceClient)
-	if err != nil {
-		log.Printf("Не удалось подключиться к серверу: %v", err)
-		utils.CreateError(w, http.StatusBadRequest, "Ошибка подключения", err)
-		errLogs := h.saveLogsError(ctxWithMetadata, clientLogs.(logs.LogsServiceClient), database, userId, err.Error())
-		if errLogs != nil {
-			log.Printf("Ошибка логирования: %v", errLogs)
-		}
-		return
-	}
-	defer conn.Close()
-
-	response, err := transport_rest.CallAddUsers(ctxWithMetadata, client.(dbadmin.DbAdminServiceClient), &reqUsers, clientLogs.(logs.LogsServiceClient), database, userId)
-	if err != nil {
-		utils.CreateError(w, http.StatusInternalServerError, "Не корректная ошибка на сервере.", err)
-		errLogs := h.saveLogsError(ctxWithMetadata, clientLogs.(logs.LogsServiceClient), database, userId, err.Error())
-		if errLogs != nil {
-			log.Printf("Ошибка логирования: %v", errLogs)
-		}
-		return
-	}
-
-	clientEmail, err, conn := h.grpcServiceConnector(token, email.NewEmailServiceClient)
-	if err != nil {
-		log.Printf("Не удалось подключиться к серверу: %v", err)
-		utils.CreateError(w, http.StatusBadRequest, "Ошибка подключения", err)
-		errLogs := h.saveLogsError(ctxWithMetadata, clientLogs.(logs.LogsServiceClient), database, userId, err.Error())
-		if errLogs != nil {
-			log.Printf("Ошибка логирования: %v", errLogs)
-		}
-		return
-	}
-	defer conn.Close()
-
-	var successCount, failureCount int
-	var failureMessages []string
-
-	for _, user := range response.Users {
-		mailRequest := types.SendEmailRequest{
-			Email:   user.Email,
-			Message: "Welcome to our service! FROM PETR",
-			Body: fmt.Sprintf(
-				`Hello %s,
-
-				Thank you for signing up for our service! We are excited to have you on board.
-				
-				Here are your login details:
-				- **Login**: %s
-				- **Password**: %s
-				
-				If you have any questions, feel free to contact our support team.
-				
-				Best regards,
-				The Team at Our Service`,
-				user.Email, user.Email, user.Password),
-		}
-
-		_, err := transport_rest.SendToEmailUser(clientEmail.(email.EmailServiceClient), &mailRequest)
-		if err != nil {
-			failureCount++
-			failureMessages = append(failureMessages, "Failed to send email to "+user.Email+": "+err.Error())
-			errLogs := h.saveLogsError(ctxWithMetadata, clientLogs.(logs.LogsServiceClient), database, userId, err.Error())
-			if errLogs != nil {
-				log.Printf("Ошибка логирования: %v", errLogs)
-			}
-			continue
-		}
-		successCount++
-	}
-
-	var failuresString string
-	if len(failureMessages) > 0 {
-		failuresString = strings.Join(failureMessages, "\n")
-	}
-
-	responseMessage := fmt.Sprintf("Successfully sent to %d users, failed for %d users.", successCount, failureCount)
-	if failureCount == 0 {
-		responseMessage = fmt.Sprintf("Successfully sent to all %d users.", successCount)
-	}
-
-	sendMessageResponse := &types.SendEmailResponse{
-		Message:  responseMessage,
-		Failures: failuresString,
-	}
-
-	if err := utils.WriteJSON(w, http.StatusOK, sendMessageResponse); err != nil {
-		utils.CreateError(w, http.StatusInternalServerError, "Не корректная ошибка на сервере.", err)
-		errLogs := h.saveLogsError(ctxWithMetadata, clientLogs.(logs.LogsServiceClient), database, userId, err.Error())
-		if errLogs != nil {
-			log.Printf("Ошибка логирования: %v", errLogs)
-		}
-	}
 }
 
 func TestAddUsers(t *testing.T) {
