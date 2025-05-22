@@ -135,3 +135,9 @@ mock_gen_admin_control:
 	mockgen -source ./proto/dbadmin/dbadmin_grpc.pb.go -destination ./tests/mocks/mock_dbadmin.go -package mocks
 	mockgen -source ./proto/email-service/email_grpc.pb.go -destination ./tests/mocks/mock_email.go -package mocks
 	mockgen -source ./proto/logs/logs_grpc.pb.go -destination ./tests/mocks/mock_logs.go -package mocks
+
+# Создание мок данных. Только из внутренней директории cd auth
+mock_gen_auth:
+	mockgen -source ./proto/dbauth/dbauth_grpc.pb.go -destination ./tests/mocks/mock_dbauth.go -package mocks
+	mockgen -source ./proto/auth/auth_grpc.pb.go -destination ./tests/mocks/mock_email.go -package mocks
+	mockgen -source ./proto/logs/logs_grpc.pb.go -destination ./tests/mocks/mock_logs.go -package mocks
