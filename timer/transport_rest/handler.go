@@ -29,9 +29,6 @@ func (h *Handler) InitRouter() *mux.Router {
 		timerRouts.HandleFunc("/start-timer", utils.RecoverMiddleware(h.StartTimer)).Methods(http.MethodPost)
 		timerRouts.HandleFunc("/end-timer", utils.RecoverMiddleware(h.EndTimer)).Methods(http.MethodPost)
 		timerRouts.HandleFunc("/get-working-timer", utils.RecoverMiddleware(h.GetWorkingTimer)).Methods(http.MethodGet)
-		/*books.HandleFunc("/{id:[0-9]+}", h.getBookByID).Methods(http.MethodGet)
-		books.HandleFunc("/{id:[0-9]+}", h.deleteBook).Methods(http.MethodDelete)
-		books.HandleFunc("/{id:[0-9]+}", h.updateBook).Methods(http.MethodPut)*/
 	}
 
 	return r
