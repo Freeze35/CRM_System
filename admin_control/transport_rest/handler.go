@@ -33,9 +33,6 @@ func (h *Handler) InitRouter() *mux.Router {
 	adminRouts := r.PathPrefix("/admin").Subrouter()
 	{
 		adminRouts.HandleFunc("/addusers", utils.RecoverMiddleware(h.AddUsers)).Methods(http.MethodPost)
-		/*books.HandleFunc("/{id:[0-9]+}", h.getBookByID).Methods(http.MethodGet)
-		books.HandleFunc("/{id:[0-9]+}", h.deleteBook).Methods(http.MethodDelete)
-		books.HandleFunc("/{id:[0-9]+}", h.updateBook).Methods(http.MethodPut)*/
 	}
 
 	return r

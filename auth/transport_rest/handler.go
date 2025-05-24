@@ -36,9 +36,7 @@ func (h *Handler) InitRouter() http.Handler {
 		authRouts.HandleFunc("/register", utils.RecoverMiddleware(h.Register)).Methods(http.MethodPost)
 		authRouts.HandleFunc("/refresh", utils.RecoverMiddleware(h.RefreshToken)).Methods(http.MethodPost)
 		authRouts.HandleFunc("/check", utils.RecoverMiddleware(h.CheckAuth)).Methods(http.MethodPost)
-		/*books.HandleFunc("/{id:[0-9]+}", h.getBookByID).Methods(http.MethodGet)
-		books.HandleFunc("/{id:[0-9]+}", h.deleteBook).Methods(http.MethodDelete)
-		books.HandleFunc("/{id:[0-9]+}", h.updateBook).Methods(http.MethodPut)*/
+
 	}
 
 	// Обертка CORS
